@@ -183,6 +183,23 @@
             </div>
 
 
+            <!-- Row field list -->
+            <div class="field-panel">
+
+                <div class="field-panel__title">
+                    HSRP Row
+                </div>
+
+                <div
+                    id="rowFieldList"
+                    class="field-panel__list"
+                    role="group"
+                    aria-label="Row fields"
+                ></div>
+
+            </div>
+
+
             <form
                 id="dashboardFilters"
                 class="filter-form"
@@ -286,33 +303,6 @@
                     >
                         <option value="all">
                             All
-                        </option>
-                    </select>
-
-                </div>
-
-
-                <!-- Summarise by -->
-                <div class="filter-group filter-group--groupby">
-
-                    <label for="groupByFilter">
-                        Summarise By
-                    </label>
-
-                    <select
-                        id="groupByFilter"
-                        name="groupBy"
-                    >
-                        <option value="dealer">
-                            Dealer
-                        </option>
-
-                        <option value="rto">
-                            RTO
-                        </option>
-
-                        <option value="period">
-                            Period
                         </option>
                     </select>
 
@@ -799,12 +789,12 @@
 
                     <div
                         id="tableContent"
-                        class="table-wrapper"
+                        class="matrix-wrapper"
                     >
 
                         <table
                             id="dealerSummaryTable"
-                            class="data-table"
+                            class="matrix-table"
                         >
 
                             <caption class="visually-hidden">

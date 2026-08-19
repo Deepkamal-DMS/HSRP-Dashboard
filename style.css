@@ -2402,3 +2402,308 @@ tfoot .cell-rate__value {
     min-width: 150px;
     max-width: 150px;
 }
+
+
+/* =========================================================
+   18. MATRIX (POWER BI STYLE)
+
+   Reproduces the reference report: a two-level column header
+   (month, then IND / VOL / MS under each), an expandable row
+   hierarchy down the left, and a solid blue total row.
+   ========================================================= */
+
+:root {
+    --pbi-blue:        #2f76b7;
+    --pbi-blue-dark:   #1f4e79;
+    --pbi-blue-mid:    #2a6aa5;
+    --pbi-grid:        #c5d5e6;
+    --pbi-grid-soft:   #dfe8f2;
+    --pbi-row-hover:   #eef4fb;
+    --pbi-head-text:   #ffffff;
+}
+
+
+/* ---------------------------------------------------------
+   18.1 Field list ("Vahan Row" panel)
+   --------------------------------------------------------- */
+
+.field-panel {
+    margin-bottom: 18px;
+
+    background: #ffffff;
+
+    border: 1px solid var(--pbi-grid);
+    border-radius: 3px;
+
+    overflow: hidden;
+}
+
+.field-panel__title {
+    padding: 6px 10px;
+
+    color: var(--pbi-blue-dark);
+    background: #dce9f7;
+
+    border-bottom: 1px solid var(--pbi-grid);
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.field-panel__list {
+    max-height: 232px;
+    overflow-y: auto;
+
+    padding: 4px 0;
+}
+
+.field-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 5px 11px;
+
+    color: #1f2937;
+
+    font-size: 12px;
+
+    cursor: pointer;
+
+    user-select: none;
+}
+
+.field-option:hover {
+    background: var(--pbi-row-hover);
+}
+
+.field-option input {
+    width: 14px;
+    height: 14px;
+
+    flex: 0 0 14px;
+
+    accent-color: var(--pbi-blue);
+
+    cursor: pointer;
+}
+
+.field-option__order {
+    margin-left: auto;
+
+    min-width: 16px;
+    height: 16px;
+
+    display: grid;
+    place-items: center;
+
+    color: #ffffff;
+    background: var(--pbi-blue);
+
+    border-radius: 3px;
+
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.field-option__order[hidden] {
+    display: none;
+}
+
+
+/* ---------------------------------------------------------
+   18.2 The matrix itself
+   --------------------------------------------------------- */
+
+.matrix-wrapper {
+    overflow: auto;
+
+    max-height: 68vh;
+
+    background: #ffffff;
+
+    border: 1px solid var(--pbi-grid);
+}
+
+.matrix-table {
+    border-collapse: collapse;
+
+    width: max-content;
+    min-width: 100%;
+
+    font-size: 12px;
+
+    font-variant-numeric: tabular-nums;
+}
+
+.matrix-table th,
+.matrix-table td {
+    padding: 3px 9px;
+
+    border: 1px solid var(--pbi-grid);
+
+    white-space: nowrap;
+}
+
+
+/* Header ------------------------------------------------ */
+
+.matrix-table thead th {
+    position: sticky;
+    z-index: 3;
+
+    color: var(--pbi-head-text);
+    background: var(--pbi-blue);
+
+    border-color: var(--pbi-blue-dark);
+
+    font-weight: 600;
+    text-align: center;
+}
+
+.matrix-table thead tr:first-child th {
+    top: 0;
+    height: 24px;
+}
+
+.matrix-table thead tr:nth-child(2) th {
+    top: 24px;
+    height: 23px;
+
+    background: var(--pbi-blue-mid);
+}
+
+/* the group separator, so month blocks read as blocks */
+.matrix-table .group-start {
+    border-left: 2px solid var(--pbi-blue-dark);
+}
+
+.matrix-table tbody .group-start,
+.matrix-table tfoot .group-start {
+    border-left: 2px solid var(--pbi-grid);
+}
+
+
+/* Row-label column -------------------------------------- */
+
+.matrix-table .row-head {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+
+    min-width: 240px;
+    max-width: 320px;
+
+    text-align: left;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.matrix-table thead .row-head {
+    z-index: 5;
+}
+
+.matrix-table tbody .row-head {
+    color: #1f2937;
+    background: #ffffff;
+
+    font-weight: 500;
+}
+
+
+/* Body -------------------------------------------------- */
+
+.matrix-table tbody td {
+    color: #1f2937;
+    background: #ffffff;
+
+    text-align: right;
+}
+
+.matrix-table tbody tr:hover td,
+.matrix-table tbody tr:hover .row-head {
+    background: var(--pbi-row-hover);
+}
+
+/*
+ * Deeper levels sit on a progressively cooler background so
+ * the hierarchy is readable without relying on indent alone.
+ */
+.matrix-table tbody tr[data-level="1"] .row-head { background: #f7fafd; }
+.matrix-table tbody tr[data-level="2"] .row-head { background: #eff5fb; }
+.matrix-table tbody tr[data-level="3"] .row-head { background: #e8f1f9; }
+
+.matrix-table tbody tr[data-level="0"] > td:not(.row-head) {
+    font-weight: 600;
+}
+
+
+/* Expander ---------------------------------------------- */
+
+.row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.row-expander {
+    width: 13px;
+    height: 13px;
+
+    flex: 0 0 13px;
+
+    display: grid;
+    place-items: center;
+
+    padding: 0;
+
+    color: #5b6b7c;
+    background: #ffffff;
+
+    border: 1px solid #9db3c8;
+    border-radius: 2px;
+
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.row-expander:hover {
+    color: var(--pbi-blue-dark);
+    border-color: var(--pbi-blue);
+}
+
+.row-expander--leaf {
+    visibility: hidden;
+}
+
+
+/* Total row --------------------------------------------- */
+
+.matrix-table tfoot th,
+.matrix-table tfoot td {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+
+    color: var(--pbi-head-text);
+    background: var(--pbi-blue);
+
+    border-color: var(--pbi-blue-dark);
+
+    font-weight: 700;
+    text-align: right;
+}
+
+.matrix-table tfoot .row-head {
+    z-index: 4;
+    text-align: left;
+}
+
+
+/* Empty cell -------------------------------------------- */
+
+.matrix-cell--empty {
+    color: #c3ccd6;
+}
