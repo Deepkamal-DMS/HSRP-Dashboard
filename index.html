@@ -1004,6 +1004,12 @@
          JAVASCRIPT
          ========================================================= -->
 
+    <!--
+        config.js must load first: it decides whether the page
+        talks to the local container or to Supabase.
+    -->
+    <script src="config.js"></script>
+
     <script
         type="module"
         src="script.js"

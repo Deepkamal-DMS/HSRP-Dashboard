@@ -28,12 +28,82 @@
    ============================================================ */
 
 /*
- * Local PostgREST in front of the hsrp Postgres. No API key:
- * the API exposes a read-only role and is bound to localhost.
+ * Two deployments, one codebase:
+ *
+ *   localhost      -> the local PostgREST container (no key,
+ *                     read-only, bound to localhost)
+ *   anywhere else  -> Supabase, whose REST API *is* PostgREST,
+ *                     so every query below is unchanged and only
+ *                     the base URL and auth headers differ
+ *
+ * Both are configured in config.js, which loads first.
  */
-const API_URL = "http://localhost:3004";
+const API = resolveApiTarget();
+
+const API_URL = API.url;
 
 const SUMMARY_TABLE = "hsrp_dealer_summary";
+
+
+function resolveApiTarget() {
+
+    const config = window.HSRP_CONFIG;
+
+    /*
+     * config.js missing entirely - fall back to local so a
+     * checkout still runs without any setup.
+     */
+    if (!config) {
+        return { url: "http://localhost:3004", key: null };
+    }
+
+    const host = window.location.hostname;
+
+    const isLocal =
+        (config.localHosts || []).includes(host) ||
+        window.location.protocol === "file:";
+
+    const target = isLocal ? config.local : config.hosted;
+
+    if (!target || !target.url || target.url.startsWith("PASTE_")) {
+
+        /*
+         * Reported rather than thrown: this runs while the module
+         * is still evaluating, and throwing here would stop the
+         * page before it can render an error banner. initializeApi
+         * raises it once the DOM is ready.
+         */
+        return {
+            url: null,
+            key: null,
+            error: isLocal
+                ? "config.js has no local API url."
+                : "This page is deployed, but config.js still has " +
+                  "placeholder Supabase settings. Fill in the " +
+                  "\"hosted\" block - see README.md."
+        };
+    }
+
+    return target;
+}
+
+
+/*
+ * Supabase authenticates every REST call with the anon key, sent
+ * both ways. Local PostgREST needs neither, so this is empty
+ * there and the requests go out exactly as before.
+ */
+function authHeaders() {
+
+    if (!API.key) {
+        return {};
+    }
+
+    return {
+        apikey: API.key,
+        Authorization: `Bearer ${API.key}`
+    };
+}
 
 
 /* ============================================================
@@ -242,7 +312,7 @@ class RestQuery {
 
             response = await fetch(url, {
                 method: this.headOnly ? "HEAD" : "GET",
-                headers: this.headers,
+                headers: { ...authHeaders(), ...this.headers },
                 signal: this.signal
             });
 
@@ -576,6 +646,10 @@ function fitmentRate(fixed, total) {
    ============================================================ */
 
 function initializeApi() {
+
+    if (API.error) {
+        throw new Error(API.error);
+    }
 
     if (!restClient) {
         restClient = createRestClient(API_URL);

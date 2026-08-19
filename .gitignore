@@ -1,0 +1,60 @@
+# =====================================================================
+#  HSRP Dashboard
+# =====================================================================
+
+# ---------------------------------------------------------------------
+#  SOURCE DATA - never commit
+# ---------------------------------------------------------------------
+#  The RTO exports contain personal data: owner names and vehicle
+#  registration numbers, ~99,600 rows of it. This repository is
+#  public (GitHub Pages), so none of it can go in.
+#
+#  Only the dealer-level aggregate is published, and that goes to
+#  Supabase via db\publish-to-supabase.ps1 - never through git.
+# ---------------------------------------------------------------------
+
+HSRP/
+*.csv
+
+
+# ---------------------------------------------------------------------
+#  CREDENTIALS - never commit
+# ---------------------------------------------------------------------
+#  The Supabase anon key in config.js IS safe to commit; Row Level
+#  Security is what limits it, and it is meant to be public.
+#
+#  The database connection string and the service_role key are NOT.
+#  They bypass RLS. Keep them in your shell environment only.
+# ---------------------------------------------------------------------
+
+.env
+.env.*
+*.env
+secrets.*
+*credentials*
+*service_role*
+db/connection-string.txt
+
+
+# ---------------------------------------------------------------------
+#  Database dumps
+# ---------------------------------------------------------------------
+
+*.dump
+*.sql.gz
+*.backup
+db/dumps/
+
+
+# ---------------------------------------------------------------------
+#  Local noise
+# ---------------------------------------------------------------------
+
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+.vscode/
+.idea/
