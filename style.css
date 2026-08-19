@@ -1090,8 +1090,13 @@ truth, just not visible or focusable.
     letter-spacing: -0.018em;
 }
 
+/*
+ * Inside .table-card, which clips to a rounded corner. Without
+ * the horizontal padding the eyebrow starts at x=0 and its first
+ * letter is cut off by the radius.
+ */
 .section-heading--table {
-    padding: 0 0 13px;
+    padding: 16px 18px 13px;
 }
 
 
