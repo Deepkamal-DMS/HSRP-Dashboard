@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="HSRP Fitment Analytics Dashboard"
+    >
+
+    <meta
+        name="theme-color"
+        content="#0f172a"
+    >
+
+    <title>HSRP Dashboard</title>
+
+    <!-- Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+    >
+
+    <!-- Main stylesheet -->
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+</head>
+
+<body>
+
+    <!-- =========================================================
+         GLOBAL LOADING OVERLAY
+         ========================================================= -->
+
+    <div
+        id="globalLoading"
+        class="loading-overlay"
+        role="status"
+        aria-live="polite"
+        aria-label="Loading dashboard"
+        hidden
+    >
+        <div class="loading-overlay__content">
+            <span
+                class="loading-spinner"
+                aria-hidden="true"
+            ></span>
+
+            <span>Loading dashboard...</span>
+        </div>
+    </div>
+
+
+    <!-- =========================================================
+         APPLICATION HEADER
+         ========================================================= -->
+
+    <header class="dashboard-header">
+
+        <div class="dashboard-header__brand">
+
+            <div class="brand-mark" aria-hidden="true">
+                <svg
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <rect x="3" y="7" width="18" height="10" rx="2"></rect>
+                    <path d="M7 11h2"></path>
+                    <path d="M11 11h6"></path>
+                    <path d="M7 14h10"></path>
+                </svg>
+            </div>
+
+            <div>
+                <h1 id="dashboard-title">
+                    HSRP DASHBOARD
+                </h1>
+
+                <p class="dashboard-header__subtitle">
+                    High security registration plate fitment analytics
+                </p>
+            </div>
+
+        </div>
+
+
+        <div
+            class="dashboard-header__meta"
+            aria-label="Dashboard information"
+        >
+
+            <div class="data-period">
+
+                <span class="data-period__label">
+                    Data Period Range
+                </span>
+
+                <strong id="data-year-range">
+                    —
+                </strong>
+
+            </div>
+
+            <div
+                class="data-period__divider"
+                aria-hidden="true"
+            ></div>
+
+            <div class="unit-label">
+                All Values in Applications
+            </div>
+
+        </div>
+
+    </header>
+
+
+    <!-- =========================================================
+         MAIN DASHBOARD
+         ========================================================= -->
+
+    <main class="dashboard-layout">
+
+
+        <!-- =====================================================
+             FILTER SIDEBAR
+             ===================================================== -->
+
+        <aside
+            class="filter-sidebar"
+            aria-labelledby="filters-title"
+        >
+
+            <div class="filter-sidebar__header">
+
+                <div>
+                    <span class="section-eyebrow">
+                        CONTROLS
+                    </span>
+
+                    <h2 id="filters-title">
+                        Filters
+                    </h2>
+                </div>
+
+                <span
+                    class="filter-sidebar__icon"
+                    aria-hidden="true"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        width="19"
+                        height="19"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M4 6h16"></path>
+                        <path d="M7 12h10"></path>
+                        <path d="M10 18h4"></path>
+                    </svg>
+                </span>
+
+            </div>
+
+
+            <form
+                id="dashboardFilters"
+                class="filter-form"
+                novalidate
+            >
+
+                <!-- RTO -->
+                <div class="filter-group filter-group--rto">
+
+                    <label for="rtoFilter">
+                        RTO
+                    </label>
+
+                    <select
+                        id="rtoFilter"
+                        name="rto"
+                    >
+                        <option value="all">
+                            All RTOs
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Year -->
+                <div class="filter-group filter-group--year">
+
+                    <label for="yearFilter">
+                        Year
+                    </label>
+
+                    <select
+                        id="yearFilter"
+                        name="year"
+                    >
+                        <option value="all">
+                            All
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Month -->
+                <div class="filter-group filter-group--month">
+
+                    <label for="monthFilter">
+                        Month
+                    </label>
+
+                    <select
+                        id="monthFilter"
+                        name="month"
+                    >
+                        <option value="all">
+                            All
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Status -->
+                <div class="filter-group filter-group--status">
+
+                    <label for="statusFilter">
+                        Status
+                    </label>
+
+                    <select
+                        id="statusFilter"
+                        name="status"
+                    >
+                        <option value="all">
+                            All
+                        </option>
+
+                        <option value="fixed">
+                            HSRP Fixed
+                        </option>
+
+                        <option value="pending">
+                            HSRP Pending
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Dealer -->
+                <div class="filter-group filter-group--dealer">
+
+                    <label for="dealerFilter">
+                        Dealer
+                    </label>
+
+                    <select
+                        id="dealerFilter"
+                        name="dealer"
+                    >
+                        <option value="all">
+                            All
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Summarise by -->
+                <div class="filter-group filter-group--groupby">
+
+                    <label for="groupByFilter">
+                        Summarise By
+                    </label>
+
+                    <select
+                        id="groupByFilter"
+                        name="groupBy"
+                    >
+                        <option value="dealer">
+                            Dealer
+                        </option>
+
+                        <option value="rto">
+                            RTO
+                        </option>
+
+                        <option value="period">
+                            Period
+                        </option>
+                    </select>
+
+                </div>
+
+
+                <!-- Filter notice -->
+                <p
+                    id="filterNotice"
+                    class="filter-notice"
+                    aria-live="polite"
+                    hidden
+                ></p>
+
+
+                <!-- Clear -->
+                <button
+                    type="button"
+                    id="clearFiltersButton"
+                    class="clear-filters-button"
+                >
+
+                    <svg
+                        viewBox="0 0 24 24"
+                        width="17"
+                        height="17"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path d="M3 6h18"></path>
+                        <path d="M8 6V4h8v2"></path>
+                        <path d="M19 6l-1 14H6L5 6"></path>
+                        <path d="M10 11v5"></path>
+                        <path d="M14 11v5"></path>
+                    </svg>
+
+                    Clear Filters
+
+                </button>
+
+            </form>
+
+        </aside>
+
+
+        <!-- =====================================================
+             MAIN CONTENT
+             ===================================================== -->
+
+        <section class="dashboard-content">
+
+
+            <!-- =================================================
+                 GLOBAL ERROR BANNER
+                 ================================================= -->
+
+            <div
+                id="errorMessage"
+                class="error-banner"
+                role="alert"
+                hidden
+            >
+
+                <span
+                    class="error-banner__icon"
+                    aria-hidden="true"
+                >!</span>
+
+                <span id="errorMessageText"></span>
+
+                <button
+                    type="button"
+                    id="retryButton"
+                    class="error-banner__retry"
+                >
+                    Retry
+                </button>
+
+            </div>
+
+
+            <!-- =================================================
+                 ACTIVE FILTERS
+                 ================================================= -->
+
+            <div
+                id="activeFilters"
+                class="active-filters"
+                aria-live="polite"
+                aria-label="Active filters"
+            >
+
+                <span class="active-filters__label">
+                    Active Filters:
+                </span>
+
+                <span class="active-filter active-filter--empty">
+                    No active filters
+                </span>
+
+            </div>
+
+
+            <!-- =================================================
+                 DATASET SCOPE NOTE
+                 ================================================= -->
+
+            <p
+                id="datasetNote"
+                class="dataset-note"
+                hidden
+            ></p>
+
+
+            <!-- =================================================
+                 OVERVIEW
+                 ================================================= -->
+
+            <section
+                class="content-section"
+                aria-labelledby="summary-title"
+            >
+
+                <div class="section-heading">
+
+                    <div>
+
+                        <span class="section-eyebrow">
+                            OVERVIEW
+                        </span>
+
+                        <h2 id="summary-title">
+                            Fitment Summary
+                        </h2>
+
+                    </div>
+
+                </div>
+
+
+                <div class="kpi-grid">
+
+
+                    <!-- Total Applications -->
+
+                    <article class="kpi-card">
+
+                        <div
+                            class="kpi-card__icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="21"
+                                height="21"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M5 4h14v16H5z"></path>
+                                <path d="M8 8h8"></path>
+                                <path d="M8 12h8"></path>
+                                <path d="M8 16h5"></path>
+                            </svg>
+                        </div>
+
+                        <div class="kpi-card__content">
+
+                            <span class="kpi-card__label">
+                                Total Applications
+                            </span>
+
+                            <strong
+                                id="totalApplications"
+                                class="kpi-card__value"
+                            >
+                                0
+                            </strong>
+
+                            <span
+                                id="totalApplicationsMeta"
+                                class="kpi-card__meta kpi-card__meta--muted"
+                            >
+                                All selected applications
+                            </span>
+
+                        </div>
+
+                    </article>
+
+
+                    <!-- HSRP Fixed -->
+
+                    <article class="kpi-card kpi-card--success">
+
+                        <div
+                            class="kpi-card__icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="21"
+                                height="21"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="m8.5 12.5 2.5 2.5 4.5-5"></path>
+                            </svg>
+                        </div>
+
+                        <div class="kpi-card__content">
+
+                            <span class="kpi-card__label">
+                                HSRP Fixed
+                            </span>
+
+                            <strong
+                                id="fixedCount"
+                                class="kpi-card__value"
+                            >
+                                0
+                            </strong>
+
+                            <span
+                                id="fixedPercentage"
+                                class="kpi-card__meta"
+                            >
+                                —
+                            </span>
+
+                        </div>
+
+                    </article>
+
+
+                    <!-- HSRP Pending -->
+
+                    <article class="kpi-card kpi-card--warning">
+
+                        <div
+                            class="kpi-card__icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="21"
+                                height="21"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M12 7.5V12l3 2"></path>
+                            </svg>
+                        </div>
+
+                        <div class="kpi-card__content">
+
+                            <span class="kpi-card__label">
+                                HSRP Pending
+                            </span>
+
+                            <strong
+                                id="pendingCount"
+                                class="kpi-card__value"
+                            >
+                                0
+                            </strong>
+
+                            <span
+                                id="pendingPercentage"
+                                class="kpi-card__meta kpi-card__meta--warning"
+                            >
+                                —
+                            </span>
+
+                        </div>
+
+                    </article>
+
+
+                    <!-- Entity count -->
+
+                    <article class="kpi-card">
+
+                        <div
+                            class="kpi-card__icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="21"
+                                height="21"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M4 20V9l8-5 8 5v11"></path>
+                                <path d="M9 20v-6h6v6"></path>
+                                <path d="M4 20h16"></path>
+                            </svg>
+                        </div>
+
+                        <div class="kpi-card__content">
+
+                            <span
+                                id="entityCountLabel"
+                                class="kpi-card__label"
+                            >
+                                Total Dealers
+                            </span>
+
+                            <strong
+                                id="entityCount"
+                                class="kpi-card__value"
+                            >
+                                0
+                            </strong>
+
+                            <span
+                                id="entityCountMeta"
+                                class="kpi-card__meta kpi-card__meta--muted"
+                            >
+                                Dealers with applications
+                            </span>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 DEALER SUMMARY
+                 ================================================= -->
+
+            <section
+                class="content-section"
+                aria-labelledby="dealer-summary-title"
+            >
+
+                <div class="table-card">
+
+
+                    <!-- Table header -->
+
+                    <div class="section-heading section-heading--table">
+
+                        <div>
+
+                            <span class="section-eyebrow">
+                                DETAILS
+                            </span>
+
+                            <h2 id="dealer-summary-title">
+                                Fitment by Dealer
+                            </h2>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- Table toolbar -->
+
+                    <div class="table-toolbar">
+
+                        <div class="table-toolbar__left">
+
+                            <div
+                                id="entitySearchList"
+                                class="search-list"
+                            ></div>
+
+                        </div>
+
+                        <div class="table-toolbar__right">
+
+                            <span
+                                id="resultCount"
+                                class="result-count"
+                            ></span>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- Table states -->
+
+                    <div
+                        id="tableLoading"
+                        class="table-state table-state--loading"
+                        role="status"
+                        aria-live="polite"
+                        hidden
+                    >
+
+                        <span
+                            class="loading-spinner loading-spinner--small"
+                            aria-hidden="true"
+                        ></span>
+
+                        <span>
+                            Loading data...
+                        </span>
+
+                    </div>
+
+
+                    <div
+                        id="tableEmpty"
+                        class="table-state table-state--empty"
+                        role="status"
+                        aria-live="polite"
+                        hidden
+                    >
+
+                        <div class="table-state__icon">
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="32"
+                                height="32"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.7"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="9"
+                                ></circle>
+
+                                <path d="M8 12h8"></path>
+                            </svg>
+                        </div>
+
+                        <p id="tableEmptyText">
+                            No data found for the selected filters.
+                        </p>
+
+                    </div>
+
+
+                    <div
+                        id="tableError"
+                        class="table-state table-state--error"
+                        role="alert"
+                        hidden
+                    >
+
+                        <div class="table-state__icon">
+                            !
+                        </div>
+
+                        <p id="tableErrorText">
+                            Unable to load data. Please try again.
+                        </p>
+
+                    </div>
+
+
+                    <!-- Actual table -->
+
+                    <div
+                        id="tableContent"
+                        class="table-wrapper"
+                    >
+
+                        <table
+                            id="dealerSummaryTable"
+                            class="data-table"
+                        >
+
+                            <caption class="visually-hidden">
+                                HSRP applications summarized by dealer
+                            </caption>
+
+                            <!--
+                                Head, body and foot are all
+                                rendered by script.js, because the
+                                entity column changes with the
+                                selected grouping.
+                            -->
+
+                            <thead id="dealerSummaryTableHead"></thead>
+
+                            <tbody id="dealerSummaryTableBody">
+
+                                <tr class="table-placeholder-row">
+
+                                    <td>
+                                        Loading...
+                                    </td>
+
+                                </tr>
+
+                            </tbody>
+
+                            <tfoot id="dealerSummaryTableFoot"></tfoot>
+
+                        </table>
+
+                    </div>
+
+
+                    <!-- Pagination -->
+
+                    <nav
+                        class="pagination"
+                        aria-label="Dealer summary pagination"
+                    >
+
+                        <div class="pagination__left">
+
+                            <label for="pageSizeSelect">
+                                Rows per page
+                            </label>
+
+                            <select
+                                id="pageSizeSelect"
+                                aria-label="Rows per page"
+                            >
+
+                                <option value="25">
+                                    25
+                                </option>
+
+                                <option value="50">
+                                    50
+                                </option>
+
+                                <option value="100">
+                                    100
+                                </option>
+
+                            </select>
+
+                        </div>
+
+
+                        <div class="pagination__right">
+
+                            <button
+                                type="button"
+                                id="previousPageButton"
+                                class="pagination-button"
+                                aria-label="Previous page"
+                                disabled
+                            >
+                                Previous
+                            </button>
+
+                            <span
+                                id="pageIndicator"
+                                class="page-indicator"
+                            >
+                                Page 1 of 1
+                            </span>
+
+                            <button
+                                type="button"
+                                id="nextPageButton"
+                                class="pagination-button"
+                                aria-label="Next page"
+                                disabled
+                            >
+                                Next
+                            </button>
+
+                        </div>
+
+                    </nav>
+
+                </div>
+
+            </section>
+
+        </section>
+
+    </main>
+
+
+    <!-- =========================================================
+         SEARCH ROW TEMPLATE
+
+         Cloned by script.js for each search bar. The add and
+         remove buttons are toggled per row: the first row adds,
+         every other row removes.
+         ========================================================= -->
+
+    <template id="searchRowTemplate">
+
+        <div
+            class="search-row"
+            data-search-row
+        >
+
+            <label class="search-box">
+
+                <svg
+                    viewBox="0 0 24 24"
+                    width="17"
+                    height="17"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                >
+                    <circle
+                        cx="11"
+                        cy="11"
+                        r="7"
+                    ></circle>
+
+                    <path
+                        d="m20 20-4-4"
+                    ></path>
+                </svg>
+
+                <input
+                    type="search"
+                    class="entity-search"
+                    data-entity-search
+                    placeholder="Search dealer..."
+                    autocomplete="off"
+                >
+
+                <button
+                    type="button"
+                    class="search-box__clear"
+                    data-clear-search
+                    aria-label="Clear this search"
+                    hidden
+                >
+                    &times;
+                </button>
+
+            </label>
+
+            <button
+                type="button"
+                class="search-row__button search-row__button--add"
+                data-add-search
+                aria-label="Add another dealer search"
+                title="Add another dealer search"
+            >
+                +
+            </button>
+
+            <button
+                type="button"
+                class="search-row__button search-row__button--remove"
+                data-remove-search
+                aria-label="Remove this search"
+                title="Remove this search"
+            >
+                &minus;
+            </button>
+
+        </div>
+
+    </template>
+
+
+    <!-- =========================================================
+         JAVASCRIPT
+         ========================================================= -->
+
+    <script
+        type="module"
+        src="script.js"
+    ></script>
+
+</body>
+</html>
