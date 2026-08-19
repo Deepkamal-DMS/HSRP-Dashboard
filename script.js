@@ -15,7 +15,7 @@
                 | total | fixed | pending
 
    That is ~6,200 rows, so this file fetches it once, caches it,
-   and then does every filter, grouping and page in memory.
+   and then does every filter, grouping, sort and page in memory.
    After first paint nothing touches the network again.
 
    The month and year come from the CSV file names at load time
@@ -148,59 +148,61 @@ const MONTH_SHORT = [
 
 
 /*
- * The row hierarchy, chosen with the checkbox panel on the left.
- * Tick order is hierarchy order: Year then RTO gives Year > RTO,
- * every level expandable.
- *
- * Months run across the top of the matrix, so Month here adds a
- * month level down the side as well - the reference report has
- * the same field available on both axes.
+ * One entry per "Summarise by" option. Each collapses the same
+ * cached rows onto a different key, so the whole view model is
+ * unchanged - only the label of the first column moves.
  */
-const ROW_FIELDS = [
-    {
-        id: "year",
-        label: "Year",
-        plural: "Years",
-        keyOf: row => String(row.report_year),
+const GROUPINGS = {
+
+    dealer: {
+        id: "dealer",
+        entity: "Dealer",
+        entityPlural: "Dealers",
+        title: "Fitment by Dealer",
+        searchPlaceholder: "Search dealer...",
+        narrow: false,
+        keyOf: row => row.dealer_name,
         labelOf: key => key
     },
-    {
-        id: "quarter",
-        label: "Quarter",
-        plural: "Quarters",
-        keyOf: row => "Q" + Math.ceil(row.report_month / 3),
-        labelOf: key => key
-    },
-    {
-        id: "month",
-        label: "Month",
-        plural: "Months",
-        keyOf: row => String(row.report_month).padStart(2, "0"),
-        labelOf: key => MONTH_NAMES[Number(key)] || key
-    },
-    {
+
+    rto: {
         id: "rto",
-        label: "RTO",
-        plural: "RTOs",
+        entity: "RTO",
+        entityPlural: "RTOs",
+        title: "Fitment by RTO",
+        searchPlaceholder: "Search RTO...",
+        narrow: true,
         keyOf: row => row.rto_code,
         labelOf: key => key
     },
-    {
-        id: "dealer",
-        label: "Dealername",
-        plural: "Dealers",
-        keyOf: row => row.dealer_name,
-        labelOf: key => key
-    }
-];
 
-const DEFAULT_ROW_FIELDS = ["year"];
+    period: {
+        id: "period",
+        entity: "Period",
+        entityPlural: "Periods",
+        title: "Fitment by Period",
+        searchPlaceholder: "Search period...",
+        narrow: true,
+
+        /*
+         * Sortable key, readable label: 2026-04 sorts correctly
+         * as text while the column shows "APR 2026".
+         */
+        keyOf: row => `${row.report_year}-${String(row.report_month).padStart(2, "0")}`,
+        labelOf: key => {
+            const [year, month] = key.split("-");
+            return `${MONTH_SHORT[Number(month)] || month} ${year}`;
+        }
+    }
+};
+
+const DEFAULT_GROUPING = "dealer";
 
 
 /*
  * The status filter does not just remove rows - it changes what
  * the table is measuring, so it also decides which value column
- * makes sense. See buildColumnGroups().
+ * makes sense. See buildColumns().
  */
 const STATUSES = {
     all:     { id: "all",     label: "All",          field: null },
@@ -219,7 +221,8 @@ const SEARCHABLE_FILTERS = [
     "yearFilter",
     "monthFilter",
     "statusFilter",
-    "dealerFilter"
+    "dealerFilter",
+    "groupByFilter"
 ];
 
 
@@ -416,17 +419,10 @@ const state = {
         year: CONFIG.ALL,
         month: CONFIG.ALL,
         status: CONFIG.ALL,
-        dealer: CONFIG.ALL
+        dealers: []
     },
 
-    /* Row hierarchy, chosen in the checkbox panel. */
-    rowFields: [...DEFAULT_ROW_FIELDS],
-
-    /* Paths of expanded matrix rows. */
-    expanded: new Set(),
-
-    matrix: null,
-    columnGroups: [],
+    groupBy: DEFAULT_GROUPING,
 
     /* Filter option lists, derived from the cached rows. */
     rtos: [],
@@ -455,6 +451,12 @@ const state = {
 };
 
 
+function currentGrouping() {
+
+    return GROUPINGS[state.groupBy] || GROUPINGS[DEFAULT_GROUPING];
+}
+
+
 function currentStatus() {
 
     return STATUSES[state.filters.status] || STATUSES.all;
@@ -476,7 +478,10 @@ const DOM_IDS = [
     "monthFilter",
     "statusFilter",
     "dealerFilter",
-    "rowFieldList",
+    "dealerChips",
+    "allDealersSection",
+    "dealerDetailSection",
+    "groupByFilter",
     "filterNotice",
     "clearFiltersButton",
     "errorMessage",
@@ -861,7 +866,7 @@ function loadFilterOptions() {
         dom.dealerFilter,
         state.dealers,
         "All",
-        state.filters.dealer
+        CONFIG.ALL
     );
 
     /*
@@ -869,7 +874,7 @@ function loadFilterOptions() {
      * so they only need mirroring into their comboboxes.
      */
     refreshCombo(dom.statusFilter);
-
+    refreshCombo(dom.groupByFilter);
 }
 
 
@@ -1330,135 +1335,27 @@ function readFiltersFromUI() {
     state.filters.rto = normalizeFilter(dom.rtoFilter?.value);
     state.filters.year = normalizeFilter(dom.yearFilter?.value);
     state.filters.month = normalizeFilter(dom.monthFilter?.value);
-    state.filters.dealer = normalizeFilter(dom.dealerFilter?.value);
 
     const status = normalizeString(dom.statusFilter?.value).toLowerCase();
 
     state.filters.status = STATUSES[status] ? status : CONFIG.ALL;
+
+    const grouping = normalizeString(dom.groupByFilter?.value).toLowerCase();
+
+    state.groupBy = GROUPINGS[grouping] ? grouping : DEFAULT_GROUPING;
 }
 
 
 /* ============================================================
-   11. ROW FIELD PANEL
+   11. FILTER + AGGREGATE
 
-   The checkbox list on the left, which decides the row
-   hierarchy. Ticking Year then RTO gives Year > RTO, each level
-   expandable, as in the reference report.
-   ============================================================ */
-
-function renderRowFieldPanel() {
-
-    if (!dom.rowFieldList) {
-        return;
-    }
-
-    dom.rowFieldList.innerHTML = "";
-
-    const fragment = document.createDocumentFragment();
-
-    ROW_FIELDS.forEach(field => {
-
-        const label = document.createElement("label");
-        label.className = "field-option";
-
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.value = field.id;
-        input.checked = state.rowFields.includes(field.id);
-
-        const text = document.createElement("span");
-        text.textContent = field.label;
-
-        /*
-         * The badge shows the position in the hierarchy, because
-         * order matters and tick order is not visible otherwise.
-         */
-        const order = document.createElement("span");
-        order.className = "field-option__order";
-
-        const position = state.rowFields.indexOf(field.id);
-
-        order.textContent = position + 1;
-        order.hidden = position < 0;
-
-        label.appendChild(input);
-        label.appendChild(text);
-        label.appendChild(order);
-
-        fragment.appendChild(label);
-    });
-
-    dom.rowFieldList.appendChild(fragment);
-}
-
-
-function setupRowFieldPanel() {
-
-    if (!dom.rowFieldList) {
-        return;
-    }
-
-    dom.rowFieldList.addEventListener("change", event => {
-
-        const input = event.target.closest("input[type=checkbox]");
-
-        if (!input) {
-            return;
-        }
-
-        const id = input.value;
-
-        if (input.checked) {
-
-            if (!state.rowFields.includes(id)) {
-                state.rowFields.push(id);
-            }
-
-        } else {
-
-            state.rowFields = state.rowFields.filter(field => field !== id);
-
-            /*
-             * Never leave the matrix with no row dimension - the
-             * first field goes back on rather than showing a
-             * single unlabelled row.
-             */
-            if (state.rowFields.length === 0) {
-                state.rowFields = [ROW_FIELDS[0].id];
-            }
-        }
-
-        /* The hierarchy changed, so old expansion paths are stale. */
-        state.expanded = new Set();
-
-        renderRowFieldPanel();
-        applyFilters();
-    });
-}
-
-
-function activeRowFields() {
-
-    const chosen = ROW_FIELDS.filter(
-        field => state.rowFields.includes(field.id)
-    );
-
-    return chosen.length > 0 ? chosen : [ROW_FIELDS[0]];
-}
-
-
-/* ============================================================
-   12. FILTER + MATRIX MODEL
-
-   The cached rows are one-per-(dealer, rto, period), so
-   filtering is a predicate and the matrix is a single pass that
-   accumulates each row into every level of the hierarchy it
-   belongs to, and into one cell per column group.
+   The cached rows are already one-per-(dealer, rto, period), so
+   filtering is a predicate and grouping is a single pass.
    ============================================================ */
 
 function getFilteredSourceRows() {
 
-    const { rto, year, month, dealer } = state.filters;
+    const { rto, year, month, dealers } = state.filters;
 
     return state.source.filter(row => {
 
@@ -1474,7 +1371,7 @@ function getFilteredSourceRows() {
             return false;
         }
 
-        if (!isAll(dealer) && row.dealer_name !== dealer) {
+        if (dealers.length > 0 && !dealers.includes(row.dealer_name)) {
             return false;
         }
 
@@ -1483,154 +1380,110 @@ function getFilteredSourceRows() {
 }
 
 
-/*
- * Columns are months, as in the reference. TOTAL_KEY is the
- * trailing grand-total block.
- */
-const TOTAL_KEY = "__total";
+function aggregateRows(sourceRows) {
 
-/*
- * Separates the levels of a row path. A plain space would be
- * ambiguous: "A B" then "C" would collide with "A" then "B C".
- * Unit separator (31) cannot appear in the data.
- */
-const PATH_SEP = String.fromCharCode(31);
+    const grouping = currentGrouping();
+    const status = currentStatus();
 
-
-function columnKeyOf(row) {
-
-    return String(row.report_month).padStart(2, "0");
-}
-
-
-function buildColumnGroups(sourceRows) {
-
-    const months = [
-        ...new Set(sourceRows.map(row => row.report_month))
-    ].sort((a, b) => a - b);
-
-    const groups = months.map(month => ({
-        key: String(month).padStart(2, "0"),
-        label: MONTH_NAMES[month] || String(month)
-    }));
-
-    groups.push({ key: TOTAL_KEY, label: "Total" });
-
-    return groups;
-}
-
-
-function makeNode(key, label, level, path) {
-
-    return {
-        key,
-        label,
-        level,
-        path: path || "",
-        children: new Map(),
-        cells: new Map(),
-        total: 0,
-        fixed: 0,
-        pending: 0
-    };
-}
-
-
-function addMeasures(node, row, columnKey) {
-
-    let cell = node.cells.get(columnKey);
-
-    if (!cell) {
-        cell = { total: 0, fixed: 0, pending: 0 };
-        node.cells.set(columnKey, cell);
-    }
-
-    cell.total += row.total;
-    cell.fixed += row.fixed;
-    cell.pending += row.pending;
-
-    node.total += row.total;
-    node.fixed += row.fixed;
-    node.pending += row.pending;
-}
-
-
-function buildMatrix(sourceRows) {
-
-    const fields = activeRowFields();
-    const root = makeNode("", "", -1, "");
+    const buckets = new Map();
 
     sourceRows.forEach(row => {
 
-        const columnKey = columnKeyOf(row);
+        const key = grouping.keyOf(row);
 
-        addMeasures(root, row, columnKey);
+        if (!key) {
+            return;
+        }
 
-        let node = root;
+        let bucket = buckets.get(key);
 
-        fields.forEach((field, depth) => {
+        if (!bucket) {
 
-            const key = normalizeString(field.keyOf(row));
+            bucket = {
+                key,
+                entity: grouping.labelOf(key),
+                fixed: 0,
+                pending: 0,
+                total: 0
+            };
 
-            if (!key) {
-                return;
-            }
+            buckets.set(key, bucket);
+        }
 
-            /*
-             * Unit separator, so a path cannot be ambiguous:
-             * with a plain space, "A B" then "C" would collide
-             * with "A" then "B C".
-             */
-            const path = node.path
-                ? node.path + PATH_SEP + key
-                : key;
-
-            let child = node.children.get(key);
-
-            if (!child) {
-                child = makeNode(key, field.labelOf(key), depth, path);
-                node.children.set(key, child);
-            }
-
-            addMeasures(child, row, columnKey);
-
-            node = child;
-        });
+        bucket.fixed += row.fixed;
+        bucket.pending += row.pending;
+        bucket.total += row.total;
     });
 
-    return root;
-}
+    let rows = [...buckets.values()];
 
+    /*
+     * A status filter narrows what the table measures: the
+     * total becomes that status alone, and rows with none of it
+     * drop out entirely - filtering to Pending should list the
+     * dealers who actually have pending work, not every dealer
+     * with a zero against their name.
+     */
+    if (status.field) {
 
-function sortNodes(nodes) {
-
-    return [...nodes].sort((a, b) =>
-        String(a.label).localeCompare(String(b.label), undefined, {
-            numeric: true,
-            sensitivity: "base"
-        })
-    );
-}
-
-
-/*
- * Top-level rows are what search and paging act on; a page
- * carries its expanded descendants with it, so a parent is
- * never separated from its children.
- */
-function flattenWithDescendants(node, out) {
-
-    out.push(node);
-
-    if (!state.expanded.has(node.path) || node.children.size === 0) {
-        return out;
+        rows = rows
+            .map(row => ({
+                ...row,
+                total: row[status.field]
+            }))
+            .filter(row => row.total > 0);
     }
 
-    sortNodes(node.children.values()).forEach(
-        child => flattenWithDescendants(child, out)
-    );
+    return rows;
+}
 
-    return out;
+
+/* ============================================================
+   12. COLUMNS
+
+   Column keys double as sort keys, so they match the field
+   names on an aggregated row.
+   ============================================================ */
+
+function buildColumns() {
+
+    const grouping = currentGrouping();
+    const status = currentStatus();
+
+    const columns = [
+        { key: "index", label: "#", type: "index" },
+        { key: "entity", label: grouping.entity, type: "entity" }
+    ];
+
+    if (status.field) {
+
+        /*
+         * One status selected: fixed vs pending is no longer a
+         * split worth showing, and the fitment rate would be a
+         * constant 100% or 0%. The total column carries the
+         * status name instead.
+         */
+        columns.push({
+            key: "total",
+            label: status.label,
+            type: "total"
+        });
+
+        return columns;
+    }
+
+    columns.push({ key: "fixed", label: "HSRP Fixed", type: "value" });
+    columns.push({ key: "pending", label: "HSRP Pending", type: "value" });
+    columns.push({ key: "rate", label: "Fitment %", type: "rate" });
+    columns.push({ key: "total", label: "Total", type: "total" });
+
+    return columns;
+}
+
+
+function isValidSortKey(key) {
+
+    return state.columns.some(column => column.key === key);
 }
 
 
@@ -1638,7 +1491,7 @@ function flattenWithDescendants(node, out) {
    13. KPIs
    ============================================================ */
 
-function calculateKPIs(sourceRows, topLevelCount) {
+function calculateKPIs(rows) {
 
     const status = currentStatus();
 
@@ -1646,27 +1499,32 @@ function calculateKPIs(sourceRows, topLevelCount) {
     let pending = 0;
     let total = 0;
 
-    sourceRows.forEach(row => {
+    rows.forEach(row => {
         fixed += row.fixed;
         pending += row.pending;
         total += row.total;
     });
 
+    /*
+     * Under a status filter the aggregate rows carry only that
+     * status, so the other side of the split is zero by
+     * definition rather than by measurement.
+     */
     if (status.id === "fixed") {
-        total = fixed;
         pending = 0;
     } else if (status.id === "pending") {
-        total = pending;
         fixed = 0;
     }
+
+    const denominator = total > 0 ? total : 0;
 
     return {
         total,
         fixed,
         pending,
-        fixedPct: total ? (fixed / total) * 100 : 0,
-        pendingPct: total ? (pending / total) * 100 : 0,
-        entities: topLevelCount
+        fixedPct: denominator ? (fixed / denominator) * 100 : 0,
+        pendingPct: denominator ? (pending / denominator) * 100 : 0,
+        entities: rows.length
     };
 }
 
@@ -1674,16 +1532,19 @@ function calculateKPIs(sourceRows, topLevelCount) {
 function updateKPICards() {
 
     const kpis = state.kpis;
+    const grouping = currentGrouping();
     const status = currentStatus();
-    const field = activeRowFields()[0];
 
     if (dom.totalApplications) {
         dom.totalApplications.textContent = formatIndianNumber(kpis.total);
     }
 
     if (dom.totalApplicationsMeta) {
+
         dom.totalApplicationsMeta.textContent =
-            status.field ? status.label + " only" : "All selected applications";
+            status.field
+                ? `${status.label} only`
+                : "All selected applications";
     }
 
     if (dom.fixedCount) {
@@ -1691,9 +1552,10 @@ function updateKPICards() {
     }
 
     if (dom.fixedPercentage) {
+
         dom.fixedPercentage.textContent =
             kpis.total > 0
-                ? formatPercentage(kpis.fixedPct) + " of selection"
+                ? `${formatPercentage(kpis.fixedPct)} of selection`
                 : "—";
     }
 
@@ -1702,9 +1564,10 @@ function updateKPICards() {
     }
 
     if (dom.pendingPercentage) {
+
         dom.pendingPercentage.textContent =
             kpis.total > 0
-                ? formatPercentage(kpis.pendingPct) + " of selection"
+                ? `${formatPercentage(kpis.pendingPct)} of selection`
                 : "—";
     }
 
@@ -1713,17 +1576,19 @@ function updateKPICards() {
     }
 
     if (dom.entityCountLabel) {
-        dom.entityCountLabel.textContent = "Total " + field.plural;
+        dom.entityCountLabel.textContent = `Total ${grouping.entityPlural}`;
     }
 
     if (dom.entityCountMeta) {
-        dom.entityCountMeta.textContent = field.plural + " with applications";
+
+        dom.entityCountMeta.textContent =
+            `${grouping.entityPlural} with applications`;
     }
 }
 
 
 /* ============================================================
-   14. SEARCH / PAGINATION
+   14. SEARCH / SORT / PAGINATION
    ============================================================ */
 
 function getActiveSearchTerms() {
@@ -1732,28 +1597,91 @@ function getActiveSearchTerms() {
 }
 
 
-function getSearchFilteredNodes(nodes) {
+function getSearchFilteredRows(rows) {
 
     const terms = getActiveSearchTerms();
 
     if (terms.length === 0) {
-        return nodes;
+        return rows;
     }
 
-    return nodes.filter(node => {
+    /*
+     * Multiple boxes are OR-ed, so several dealers can be
+     * compared side by side in one table.
+     */
+    return rows.filter(row => {
 
-        const label = normalizeKey(node.label);
+        const entity = normalizeKey(row.entity);
 
-        return terms.some(term => label.includes(term));
+        return terms.some(term => entity.includes(term));
     });
 }
 
 
-function getPaginatedNodes(nodes) {
+function sortRows(rows) {
+
+    const sorted = [...rows];
+    const key = state.sortKey;
+
+    sorted.sort((a, b) => {
+
+        let result = 0;
+
+        if (key === "entity") {
+
+            result = String(a.entity).localeCompare(
+                String(b.entity),
+                undefined,
+                { sensitivity: "base", numeric: true }
+            );
+
+        } else if (key === "rate") {
+
+            /*
+             * A row with no applications has no rate; park those
+             * at the bottom rather than treating them as 0%.
+             */
+            const rateA = fitmentRate(a.fixed, a.total);
+            const rateB = fitmentRate(b.fixed, b.total);
+
+            result =
+                (rateA === null ? -1 : rateA) -
+                (rateB === null ? -1 : rateB);
+
+        } else {
+
+            result = toNumber(a[key]) - toNumber(b[key]);
+        }
+
+        /*
+         * Ties fall back to the entity name so paging is stable.
+         */
+        if (result === 0) {
+            result = String(a.entity).localeCompare(String(b.entity));
+        }
+
+        return state.sortDirection === "asc" ? result : -result;
+    });
+
+    return sorted;
+}
+
+
+function getPaginatedRows(rows) {
 
     const start = (state.currentPage - 1) * state.pageSize;
 
-    return nodes.slice(start, start + state.pageSize);
+    return rows.slice(start, start + state.pageSize);
+}
+
+
+function sortIconFor(key) {
+
+    if (key !== state.sortKey) {
+        return "↕";
+    }
+
+    return state.sortDirection === "asc" ? "↑" : "↓";
 }
 
 
@@ -1790,90 +1718,126 @@ function setTableState(mode, message) {
 
 
 /* ============================================================
-   16. MATRIX RENDER
-
-   Two header rows: month across the top, then TOT / FIX / MS
-   under each. TOT is all applications, FIX is those fitted, and
-   MS is FIX divided by TOT - the same relationship the
-   reference MS has to its VOL and IND.
+   16. RENDER
    ============================================================ */
 
-const MEASURES = [
-    { key: "total", label: "TOT" },
-    { key: "fixed", label: "FIX" },
-    { key: "ms",    label: "MS"  }
-];
+/*
+ * Sticky classes are applied per cell. The first two columns pin
+ * to the left and Total pins to the right, so the row label and
+ * its total stay on screen while the middle scrolls.
+ */
+function cellClassFor(column) {
+
+    if (column.type === "index") {
+        return "col-index sticky-left sticky-left--index";
+    }
+
+    if (column.type === "entity") {
+        return "col-entity sticky-left sticky-left--entity";
+    }
+
+    if (column.type === "total") {
+        return "col-total sticky-right numeric-column";
+    }
+
+    if (column.type === "rate") {
+        return "col-rate numeric-column";
+    }
+
+    return "col-value numeric-column";
+}
 
 
 /*
- * Integers print bare, as the reference does - no thousands
- * separators inside the grid.
+ * A numeric cell carries two figures: the count on the left and
+ * its share of the column on the right. They go in a flex span
+ * rather than on the cell itself, so the td stays a table-cell
+ * and keeps its sticky positioning and column width.
  */
-function matrixNumber(value) {
+function fillNumericCell(cell, value, columnTotal, options = {}) {
 
-    return String(Math.round(toNumber(value)));
-}
+    const split = document.createElement("span");
+    split.className = "cell-split";
 
+    const amount = document.createElement("span");
+    amount.className = "cell-amount";
+    amount.textContent = formatIndianNumber(value);
 
-function matrixShare(fixed, total) {
+    if (options.alertWhenNonZero) {
 
-    const denominator = toNumber(total);
-
-    if (denominator <= 0) {
-        return "";
+        amount.classList.add(
+            toNumber(value) === 0 ? "cell-amount--zero" : "cell-amount--alert"
+        );
     }
 
-    return ((toNumber(fixed) / denominator) * 100).toFixed(1) + " %";
+    const share = document.createElement("span");
+    share.className = "cell-share";
+    share.textContent = formatShare(value, columnTotal);
+
+    split.appendChild(amount);
+    split.appendChild(share);
+
+    cell.appendChild(split);
 }
 
 
-function cellValuesFor(node, group) {
+/*
+ * The rate cell is not a share of anything else, so it shows a
+ * single figure with a meter underneath - the column can then be
+ * scanned for weak dealers without reading every number.
+ */
+function fillRateCell(cell, fixed, total) {
 
-    if (group.key === TOTAL_KEY) {
-        return { total: node.total, fixed: node.fixed };
+    const rate = fitmentRate(fixed, total);
+
+    const box = document.createElement("span");
+    box.className = "cell-rate";
+
+    const value = document.createElement("span");
+    value.className = "cell-rate__value";
+    value.textContent = rate === null ? "—" : formatPercentage(rate);
+
+    box.appendChild(value);
+
+    if (rate !== null) {
+
+        const meter = document.createElement("span");
+        meter.className = "cell-rate__meter";
+
+        const fill = document.createElement("span");
+        fill.className = "cell-rate__fill";
+
+        if (rate < CONFIG.RATE_LOW) {
+            fill.classList.add("cell-rate__fill--low");
+        } else if (rate < CONFIG.RATE_MID) {
+            fill.classList.add("cell-rate__fill--mid");
+        }
+
+        fill.style.width = `${Math.max(0, Math.min(100, rate))}%`;
+
+        meter.appendChild(fill);
+        box.appendChild(meter);
     }
 
-    const cell = node.cells.get(group.key);
-
-    return cell ? { total: cell.total, fixed: cell.fixed } : null;
+    cell.appendChild(box);
 }
 
 
-function appendMeasureCells(row, node, groups, tag) {
+function calculateColumnTotals(rows) {
 
-    groups.forEach(group => {
+    const totals = { fixed: 0, pending: 0, total: 0 };
 
-        const values = cellValuesFor(node, group);
-
-        MEASURES.forEach((measure, index) => {
-
-            const cell = document.createElement(tag);
-
-            if (index === 0) {
-                cell.className = "group-start";
-            }
-
-            if (!values) {
-
-                cell.classList.add("matrix-cell--empty");
-                cell.textContent = "";
-
-            } else if (measure.key === "ms") {
-
-                cell.textContent = matrixShare(values.fixed, values.total);
-
-            } else {
-
-                cell.textContent = matrixNumber(values[measure.key]);
-            }
-
-            row.appendChild(cell);
-        });
+    rows.forEach(row => {
+        totals.fixed += toNumber(row.fixed);
+        totals.pending += toNumber(row.pending);
+        totals.total += toNumber(row.total);
     });
+
+    return totals;
 }
 
 
-function renderMatrixHead(groups) {
+function renderTableHead() {
 
     if (!dom.dealerSummaryTableHead) {
         return;
@@ -1881,55 +1845,65 @@ function renderMatrixHead(groups) {
 
     dom.dealerSummaryTableHead.innerHTML = "";
 
-    /* Row 1: the column field name, then one block per month. */
-    const top = document.createElement("tr");
+    const tr = document.createElement("tr");
 
-    const topCorner = document.createElement("th");
-    topCorner.className = "row-head";
-    topCorner.textContent = "Month";
-    top.appendChild(topCorner);
-
-    groups.forEach(group => {
+    state.columns.forEach(column => {
 
         const th = document.createElement("th");
-        th.className = "group-start";
-        th.colSpan = MEASURES.length;
-        th.textContent = group.label;
 
-        top.appendChild(th);
+        th.scope = "col";
+        th.className = cellClassFor(column);
+
+        /*
+         * The row number is a display counter, not data - there
+         * is nothing meaningful to sort it by, so it gets a
+         * plain header rather than a sort button.
+         */
+        if (column.type === "index") {
+
+            th.textContent = column.label;
+            tr.appendChild(th);
+
+            return;
+        }
+
+        th.setAttribute("data-sort-key", column.key);
+
+        th.setAttribute(
+            "aria-sort",
+            column.key === state.sortKey
+                ? state.sortDirection === "asc"
+                    ? "ascending"
+                    : "descending"
+                : "none"
+        );
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "table-sort-button";
+        button.setAttribute("data-sort", column.key);
+        button.setAttribute("aria-label", `Sort by ${column.label}`);
+
+        const label = document.createElement("span");
+        label.textContent = column.label;
+
+        const icon = document.createElement("span");
+        icon.className = "sort-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = sortIconFor(column.key);
+
+        button.appendChild(label);
+        button.appendChild(icon);
+        th.appendChild(button);
+
+        tr.appendChild(th);
     });
 
-    /* Row 2: the row field names, then the measures. */
-    const bottom = document.createElement("tr");
-
-    const bottomCorner = document.createElement("th");
-    bottomCorner.className = "row-head";
-    bottomCorner.textContent =
-        activeRowFields().map(field => field.label).join(" / ");
-    bottom.appendChild(bottomCorner);
-
-    groups.forEach(() => {
-
-        MEASURES.forEach((measure, index) => {
-
-            const th = document.createElement("th");
-
-            if (index === 0) {
-                th.className = "group-start";
-            }
-
-            th.textContent = measure.label;
-
-            bottom.appendChild(th);
-        });
-    });
-
-    dom.dealerSummaryTableHead.appendChild(top);
-    dom.dealerSummaryTableHead.appendChild(bottom);
+    dom.dealerSummaryTableHead.appendChild(tr);
 }
 
 
-function renderMatrixFoot(nodes, groups) {
+function renderTableFoot(rows, shareTotals) {
 
     if (!dom.dealerSummaryTableFoot) {
         return;
@@ -1937,106 +1911,49 @@ function renderMatrixFoot(nodes, groups) {
 
     dom.dealerSummaryTableFoot.innerHTML = "";
 
-    /*
-     * The total row sums what is on screen, so it follows both
-     * the filters and the search.
-     */
-    const totals = makeNode("", "Total", -1, "");
+    const totals = calculateColumnTotals(rows);
 
-    nodes.forEach(node => {
+    const tr = document.createElement("tr");
 
-        totals.total += node.total;
-        totals.fixed += node.fixed;
-        totals.pending += node.pending;
+    state.columns.forEach(column => {
 
-        node.cells.forEach((cell, key) => {
+        const cell = document.createElement(
+            column.type === "entity" ? "th" : "td"
+        );
 
-            let target = totals.cells.get(key);
+        cell.className = cellClassFor(column);
 
-            if (!target) {
-                target = { total: 0, fixed: 0, pending: 0 };
-                totals.cells.set(key, target);
-            }
+        if (column.type === "index") {
 
-            target.total += cell.total;
-            target.fixed += cell.fixed;
-            target.pending += cell.pending;
-        });
-    });
+            cell.textContent = "";
 
-    const row = document.createElement("tr");
+        } else if (column.type === "entity") {
 
-    const head = document.createElement("th");
-    head.className = "row-head";
-    head.scope = "row";
-    head.textContent = "Total";
-    row.appendChild(head);
+            cell.scope = "row";
+            cell.textContent = `Total (${formatIndianNumber(rows.length)})`;
 
-    appendMeasureCells(row, totals, groups, "td");
+        } else if (column.type === "rate") {
 
-    dom.dealerSummaryTableFoot.appendChild(row);
-}
-
-
-function renderMatrixBody(nodes, groups) {
-
-    dom.dealerSummaryTableBody.innerHTML = "";
-
-    const fragment = document.createDocumentFragment();
-
-    nodes.forEach(node => {
-
-        const tr = document.createElement("tr");
-        tr.setAttribute("data-level", String(node.level));
-
-        const head = document.createElement("th");
-        head.className = "row-head";
-        head.scope = "row";
-        head.title = node.label;
-
-        const wrap = document.createElement("span");
-        wrap.className = "row-label";
-        wrap.style.paddingLeft = (node.level * 15) + "px";
-
-        const expander = document.createElement("button");
-        expander.type = "button";
-
-        const hasChildren = node.children.size > 0;
-
-        expander.className =
-            hasChildren ? "row-expander" : "row-expander row-expander--leaf";
-
-        if (hasChildren) {
-
-            const open = state.expanded.has(node.path);
-
-            expander.textContent = open ? "−" : "+";
-            expander.setAttribute("data-expand", node.path);
-            expander.setAttribute("aria-expanded", open ? "true" : "false");
-            expander.setAttribute(
-                "aria-label",
-                (open ? "Collapse " : "Expand ") + node.label
-            );
+            fillRateCell(cell, totals.fixed, totals.total);
 
         } else {
-            expander.tabIndex = -1;
-            expander.setAttribute("aria-hidden", "true");
+
+            /*
+             * Against the unsearched denominator this reads 100%
+             * on the full list, and on a search it reads how much
+             * of the selection the matches account for.
+             */
+            fillNumericCell(
+                cell,
+                totals[column.key],
+                shareTotals[column.key]
+            );
         }
 
-        const text = document.createElement("span");
-        text.textContent = node.label;
-
-        wrap.appendChild(expander);
-        wrap.appendChild(text);
-        head.appendChild(wrap);
-        tr.appendChild(head);
-
-        appendMeasureCells(tr, node, groups, "td");
-
-        fragment.appendChild(tr);
+        tr.appendChild(cell);
     });
 
-    dom.dealerSummaryTableBody.appendChild(fragment);
+    dom.dealerSummaryTableFoot.appendChild(tr);
 }
 
 
@@ -2046,35 +1963,65 @@ function renderTable() {
         return;
     }
 
-    const groups = state.columnGroups;
+    const grouping = currentGrouping();
 
-    const topLevel = sortNodes(state.matrix.children.values());
-    const searched = getSearchFilteredNodes(topLevel);
+    if (dom.dealerSummaryTable) {
 
-    state.filteredRows = searched;
+        dom.dealerSummaryTable.classList.toggle(
+            "data-table--narrow-entity",
+            grouping.narrow
+        );
+    }
 
-    const totalPages = Math.max(1, Math.ceil(searched.length / state.pageSize));
+    const searched = getSearchFilteredRows(state.rows);
+    const rows = sortRows(searched);
+
+    state.filteredRows = rows;
+
+    const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
 
     if (state.currentPage > totalPages) {
         state.currentPage = totalPages;
     }
 
-    updateResultCount(searched.length, topLevel.length);
+    const pageRows = getPaginatedRows(rows);
+
+    /*
+     * Two sets of totals, because they answer different
+     * questions. The foot sums what is on screen, so it follows
+     * the search. Share must not - searching for one dealer would
+     * otherwise show it holding 100% of the work - so its
+     * denominator stays the unsearched set, leaving a dealer's
+     * share identical whether or not it was searched for.
+     * Filters still apply to both: they define the selection
+     * being measured.
+     */
+    const shareTotals =
+        state.searchTerms.length === 0
+            ? calculateColumnTotals(rows)
+            : calculateColumnTotals(state.rows);
+
+    dom.dealerSummaryTableBody.innerHTML = "";
+
+    renderTableHead();
+    renderTableFoot(rows, shareTotals);
+
+    updateResultCount(rows.length, state.rows.length);
     updatePagination(totalPages);
 
-    if (searched.length === 0 || groups.length <= 1) {
+    if (rows.length === 0) {
 
         const terms = state.searchTerms.map(normalizeString).filter(Boolean);
-        const entity = activeRowFields()[0].label.toLowerCase();
+        const entity = grouping.entity.toLowerCase();
 
         let message = "No data found for the selected filters.";
 
         if (terms.length === 1) {
-            message = "No " + entity + " matches \"" + terms[0] + "\".";
+            message = `No ${entity} matches "${terms[0]}".`;
         } else if (terms.length > 1) {
             message =
-                "No " + entity + " matches " +
-                terms.map(term => "\"" + term + "\"").join(" or ") + ".";
+                `No ${entity} matches ` +
+                terms.map(term => `"${term}"`).join(" or ") + ".";
         }
 
         setTableState("empty", message);
@@ -2084,42 +2031,51 @@ function renderTable() {
 
     setTableState("data");
 
-    const visible = [];
+    const startIndex = (state.currentPage - 1) * state.pageSize;
 
-    getPaginatedNodes(searched).forEach(
-        node => flattenWithDescendants(node, visible)
-    );
+    const fragment = document.createDocumentFragment();
 
-    renderMatrixHead(groups);
-    renderMatrixBody(visible, groups);
-    renderMatrixFoot(searched, groups);
-}
+    pageRows.forEach((row, offset) => {
 
+        const tr = document.createElement("tr");
 
-function setupMatrixExpanders() {
+        state.columns.forEach(column => {
 
-    if (!dom.dealerSummaryTableBody) {
-        return;
-    }
+            const td = document.createElement("td");
 
-    dom.dealerSummaryTableBody.addEventListener("click", event => {
+            td.className = cellClassFor(column);
 
-        const button = event.target.closest("[data-expand]");
+            if (column.type === "index") {
 
-        if (!button) {
-            return;
-        }
+                td.textContent =
+                    formatIndianNumber(startIndex + offset + 1);
 
-        const path = button.getAttribute("data-expand");
+            } else if (column.type === "entity") {
 
-        if (state.expanded.has(path)) {
-            state.expanded.delete(path);
-        } else {
-            state.expanded.add(path);
-        }
+                td.textContent = row.entity;
+                td.title = row.entity;
 
-        renderTable();
+            } else if (column.type === "rate") {
+
+                fillRateCell(td, row.fixed, row.total);
+
+            } else {
+
+                fillNumericCell(
+                    td,
+                    row[column.key],
+                    shareTotals[column.key],
+                    { alertWhenNonZero: column.key === "pending" }
+                );
+            }
+
+            tr.appendChild(td);
+        });
+
+        fragment.appendChild(tr);
     });
+
+    dom.dealerSummaryTableBody.appendChild(fragment);
 }
 
 
@@ -2129,13 +2085,13 @@ function updateResultCount(shown, total) {
         return;
     }
 
-    const plural = activeRowFields()[0].plural.toLowerCase();
+    const plural = currentGrouping().entityPlural.toLowerCase();
 
     dom.resultCount.textContent =
         shown === total
-            ? formatIndianNumber(total) + " " + plural
-            : formatIndianNumber(shown) + " of " +
-              formatIndianNumber(total) + " " + plural;
+            ? `${formatIndianNumber(total)} ${plural}`
+            : `${formatIndianNumber(shown)} of ` +
+              `${formatIndianNumber(total)} ${plural}`;
 }
 
 
@@ -2143,7 +2099,7 @@ function updatePagination(totalPages) {
 
     if (dom.pageIndicator) {
         dom.pageIndicator.textContent =
-            "Page " + state.currentPage + " of " + totalPages;
+            `Page ${state.currentPage} of ${totalPages}`;
     }
 
     if (dom.previousPageButton) {
@@ -2158,18 +2114,16 @@ function updatePagination(totalPages) {
 
 function updateViewLabels() {
 
-    const fields = activeRowFields();
+    const grouping = currentGrouping();
 
     if (dom["dealer-summary-title"]) {
-        dom["dealer-summary-title"].textContent =
-            fields.map(field => field.label).join(" › ") + " × Month";
+        dom["dealer-summary-title"].textContent = grouping.title;
     }
 
     getSearchInputs().forEach(input => {
 
         if (input) {
-            input.placeholder =
-                "Search " + fields[0].label.toLowerCase() + "...";
+            input.placeholder = grouping.searchPlaceholder;
         }
     });
 }
@@ -2204,10 +2158,10 @@ function updateActiveFilters() {
         element.className = "active-filter";
 
         const strong = document.createElement("strong");
-        strong.textContent = name + ":";
+        strong.textContent = `${name}:`;
 
         element.appendChild(strong);
-        element.appendChild(document.createTextNode(" " + value));
+        element.appendChild(document.createTextNode(` ${value}`));
 
         fragment.appendChild(element);
     }
@@ -2226,12 +2180,15 @@ function updateActiveFilters() {
         addFilter("Status", currentStatus().label);
     }
 
-    addFilter("Dealer", state.filters.dealer);
+    if (state.filters.dealers.length > 0) {
+        addFilter("Dealer", state.filters.dealers.join(", "));
+    }
 
-    addFilter(
-        "Rows",
-        activeRowFields().map(field => field.label).join(" › ")
-    );
+    /*
+     * Grouping always has a value, so it is listed separately and
+     * does not count towards "no filters".
+     */
+    addFilter("Summarised by", currentGrouping().entity);
 
     if (count <= 1) {
 
@@ -2264,21 +2221,24 @@ function updateDatasetNote() {
         return;
     }
 
+    const grouping = currentGrouping();
     const status = currentStatus();
 
-    const scope = isAll(state.filters.rto) ? "All RTOs" : state.filters.rto;
+    const scope = isAll(state.filters.rto)
+        ? "All RTOs"
+        : state.filters.rto;
 
     const parts = [
-        "Source: " + SUMMARY_TABLE,
+        `Source: ${SUMMARY_TABLE}`,
         scope,
         status.field ? status.label : "all statuses",
-        formatIndianNumber(state.kpis.total) + " applications across " +
-        formatIndianNumber(state.matrix.children.size) + " " +
-        activeRowFields()[0].plural.toLowerCase()
+        `${formatIndianNumber(state.kpis.total)} applications across ` +
+        `${formatIndianNumber(state.rows.length)} ` +
+        `${grouping.entityPlural.toLowerCase()}`
     ];
 
     dom.datasetNote.hidden = false;
-    dom.datasetNote.textContent = parts.join(" · ") + ".";
+    dom.datasetNote.textContent = `${parts.join(" · ")}.`;
 }
 
 
@@ -2365,12 +2325,21 @@ function applyFilters() {
 
         readFiltersFromUI();
 
+        state.columns = buildColumns();
+
+        /*
+         * The visible column set changes with the status filter,
+         * so a sort key can go out of scope underneath the user.
+         */
+        if (!isValidSortKey(state.sortKey)) {
+            state.sortKey = "total";
+            state.sortDirection = "desc";
+        }
+
         const sourceRows = getFilteredSourceRows();
 
-        state.columnGroups = buildColumnGroups(sourceRows);
-        state.matrix = buildMatrix(sourceRows);
-        state.kpis = calculateKPIs(sourceRows, state.matrix.children.size);
-
+        state.rows = aggregateRows(sourceRows);
+        state.kpis = calculateKPIs(state.rows);
 
         state.currentPage = 1;
 
@@ -2379,12 +2348,23 @@ function applyFilters() {
         updateActiveFilters();
         updateDatasetNote();
 
-        renderTable();
+        /*
+         * Two views, never both: the full dealer list, or one
+         * Year x Month table per selected dealer.
+         */
+        const showDealers = state.filters.dealers.length > 0;
+
+        setDealerViewVisible(showDealers);
+
+        if (showDealers) {
+            renderDealerDetail(sourceRows);
+        } else {
+            renderTable();
+        }
 
     } catch (error) {
 
-        state.matrix = makeNode("", "", -1, "");
-        state.columnGroups = [];
+        state.rows = [];
         state.filteredRows = [];
         state.kpis = emptyKPIs();
 
@@ -2421,9 +2401,12 @@ function resetFilters() {
         dom.dealerFilter.value = CONFIG.ALL;
     }
 
-    state.rowFields = [...DEFAULT_ROW_FIELDS];
-    state.expanded = new Set();
-    renderRowFieldPanel();
+    state.filters.dealers = [];
+    renderDealerChips();
+
+    if (dom.groupByFilter) {
+        dom.groupByFilter.value = DEFAULT_GROUPING;
+    }
 
     refreshAllCombos();
 
@@ -2462,7 +2445,7 @@ function getSearchInputs() {
 function syncSearchRows() {
 
     const rows = getSearchRows();
-    const field = activeRowFields()[0];
+    const grouping = currentGrouping();
 
     state.searchTerms = rows.map(row => {
 
@@ -2482,14 +2465,14 @@ function syncSearchRows() {
 
         if (input) {
 
-            input.placeholder = "Search " + field.label.toLowerCase() + "...";
+            input.placeholder = grouping.searchPlaceholder;
 
             input.setAttribute(
                 "aria-label",
                 rows.length > 1
-                    ? "Search " + field.plural.toLowerCase() +
-                      ", box " + (index + 1) + " of " + rows.length
-                    : "Search " + field.plural.toLowerCase()
+                    ? `Search ${grouping.entityPlural.toLowerCase()}, ` +
+                      `box ${index + 1} of ${rows.length}`
+                    : `Search ${grouping.entityPlural.toLowerCase()}`
             );
         }
 
@@ -2660,6 +2643,42 @@ function clearTableSearch({ render = true } = {}) {
    21. EVENT WIRING
    ============================================================ */
 
+function setupSorting() {
+
+    document.addEventListener("click", event => {
+
+        const button = event.target.closest("[data-sort]");
+
+        if (!button) {
+            return;
+        }
+
+        const key = button.dataset.sort;
+
+        if (!isValidSortKey(key)) {
+            return;
+        }
+
+        if (state.sortKey === key) {
+
+            state.sortDirection =
+                state.sortDirection === "asc" ? "desc" : "asc";
+
+        } else {
+
+            state.sortKey = key;
+
+            /*
+             * Text reads best A-Z, numbers biggest-first.
+             */
+            state.sortDirection = key === "entity" ? "asc" : "desc";
+        }
+
+        state.currentPage = 1;
+
+        renderTable();
+    });
+}
 
 
 function setupPagination() {
@@ -2715,7 +2734,8 @@ function setupFilterListeners() {
         dom.yearFilter,
         dom.monthFilter,
         dom.statusFilter,
-        dom.dealerFilter
+        dom.dealerFilter,
+        dom.groupByFilter
     ];
 
     selects.forEach(select => {
@@ -2725,6 +2745,27 @@ function setupFilterListeners() {
         }
 
         select.addEventListener("change", () => {
+
+            /*
+             * Dealer is additive: choosing one adds a chip and
+             * the control returns to All, so several can be
+             * picked in turn.
+             */
+            if (select === dom.dealerFilter) {
+                addDealer(normalizeFilter(select.value));
+                select.value = CONFIG.ALL;
+                refreshCombo(select);
+                renderDealerChips();
+            }
+
+            /*
+             * Grouping changes what a search term is matched
+             * against, so a stale dealer search would silently
+             * empty the table after switching to RTO.
+             */
+            if (select === dom.groupByFilter) {
+                clearTableSearch({ render: false });
+            }
 
             applyFilters();
         });
@@ -2772,15 +2813,14 @@ async function initializeDashboard({ force = false } = {}) {
         await loadDataset();
 
         loadFilterOptions();
-        renderRowFieldPanel();
 
         if (!state.wired) {
             setupSearch();
-            setupRowFieldPanel();
-            setupMatrixExpanders();
+            setupSorting();
             setupPagination();
             setupFilterListeners();
             setupComboDismiss();
+            setupDealerChips();
             state.wired = true;
         }
 
@@ -2790,8 +2830,7 @@ async function initializeDashboard({ force = false } = {}) {
 
     } catch (error) {
 
-        state.matrix = makeNode("", "", -1, "");
-        state.columnGroups = [];
+        state.rows = [];
         state.filteredRows = [];
         state.kpis = emptyKPIs();
 
@@ -2812,6 +2851,404 @@ async function initializeDashboard({ force = false } = {}) {
         state.initialized = true;
 
         hideLoading();
+    }
+}
+
+
+/* ============================================================
+   DEALER SELECTION + PER-DEALER TABLES
+
+   With no dealer selected the dashboard shows the usual list of
+   every dealer. Selecting one or more switches the view: each
+   selected dealer gets its own Year x Month table, stacked, with
+   the dealer name as the heading.
+
+   Cells carry the count and the fitment percentage, using the
+   same split cell as the main table.
+   ============================================================ */
+
+function renderDealerChips() {
+
+    if (!dom.dealerChips) {
+        return;
+    }
+
+    dom.dealerChips.innerHTML = "";
+
+    const fragment = document.createDocumentFragment();
+
+    state.filters.dealers.forEach(name => {
+
+        const chip = document.createElement("span");
+        chip.className = "dealer-chip";
+
+        const label = document.createElement("span");
+        label.className = "dealer-chip__name";
+        label.textContent = name;
+        label.title = name;
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "dealer-chip__remove";
+        remove.setAttribute("data-remove-dealer", name);
+        remove.setAttribute("aria-label", "Remove " + name);
+        remove.textContent = "×";
+
+        chip.appendChild(label);
+        chip.appendChild(remove);
+
+        fragment.appendChild(chip);
+    });
+
+    dom.dealerChips.appendChild(fragment);
+}
+
+
+function addDealer(name) {
+
+    const value = normalizeString(name);
+
+    if (!value || isAll(value)) {
+        return;
+    }
+
+    if (!state.filters.dealers.includes(value)) {
+        state.filters.dealers.push(value);
+    }
+}
+
+
+function removeDealer(name) {
+
+    state.filters.dealers = state.filters.dealers.filter(
+        dealer => dealer !== name
+    );
+}
+
+
+function setupDealerChips() {
+
+    if (!dom.dealerChips) {
+        return;
+    }
+
+    dom.dealerChips.addEventListener("click", event => {
+
+        const button = event.target.closest("[data-remove-dealer]");
+
+        if (!button) {
+            return;
+        }
+
+        removeDealer(button.getAttribute("data-remove-dealer"));
+
+        renderDealerChips();
+        applyFilters();
+    });
+}
+
+
+/*
+ * Collapses one dealer's rows into a year x month grid.
+ */
+function buildDealerGrid(rows) {
+
+    const months = [
+        ...new Set(rows.map(row => row.report_month))
+    ].sort((a, b) => a - b);
+
+    const years = [
+        ...new Set(rows.map(row => row.report_year))
+    ].sort((a, b) => a - b);
+
+    const cells = new Map();
+    const yearTotals = new Map();
+    const monthTotals = new Map();
+
+    const grand = { total: 0, fixed: 0, pending: 0 };
+
+    function bump(map, key, row) {
+
+        let entry = map.get(key);
+
+        if (!entry) {
+            entry = { total: 0, fixed: 0, pending: 0 };
+            map.set(key, entry);
+        }
+
+        entry.total += row.total;
+        entry.fixed += row.fixed;
+        entry.pending += row.pending;
+    }
+
+    rows.forEach(row => {
+
+        bump(cells, row.report_year + "-" + row.report_month, row);
+        bump(yearTotals, String(row.report_year), row);
+        bump(monthTotals, String(row.report_month), row);
+
+        grand.total += row.total;
+        grand.fixed += row.fixed;
+        grand.pending += row.pending;
+    });
+
+    return { months, years, cells, yearTotals, monthTotals, grand };
+}
+
+
+/*
+ * Count on the left, share of the column on the right - the same
+ * split cell, and the same meaning of "%", as the main table.
+ * Fitment rate is not useful per cell: most dealers have nothing
+ * pending, so it would read 100% almost everywhere. It is shown
+ * once per dealer in the card heading instead.
+ */
+function fillDealerCell(cell, values, denominator) {
+
+    if (!values || values.total === 0) {
+        cell.textContent = "";
+        return;
+    }
+
+    const split = document.createElement("span");
+    split.className = "cell-split";
+
+    const amount = document.createElement("span");
+    amount.className = "cell-amount";
+    amount.textContent = formatIndianNumber(values.total);
+
+    const share = document.createElement("span");
+    share.className = "cell-share";
+    share.textContent = formatShare(values.total, denominator);
+
+    split.appendChild(amount);
+    split.appendChild(share);
+
+    cell.appendChild(split);
+}
+
+
+function buildDealerTable(grid) {
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+
+    /* Head: Year, then one column per month, then Total. */
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+
+    const corner = document.createElement("th");
+    corner.scope = "col";
+    corner.className = "col-entity col-year sticky-left sticky-left--entity";
+    corner.textContent = "Year";
+    headRow.appendChild(corner);
+
+    grid.months.forEach(month => {
+
+        const th = document.createElement("th");
+        th.scope = "col";
+        th.className = "col-value col-month numeric-column month-group";
+        th.textContent = MONTH_NAMES[month] || String(month);
+
+        headRow.appendChild(th);
+    });
+
+    const totalHead = document.createElement("th");
+    totalHead.scope = "col";
+    totalHead.className = "col-total sticky-right numeric-column";
+    totalHead.textContent = "Total";
+    headRow.appendChild(totalHead);
+
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    /* Body: one row per year. */
+    const tbody = document.createElement("tbody");
+
+    grid.years.forEach(year => {
+
+        const tr = document.createElement("tr");
+
+        const head = document.createElement("th");
+        head.scope = "row";
+        head.className = "col-entity col-year sticky-left sticky-left--entity";
+        head.textContent = String(year);
+        tr.appendChild(head);
+
+        grid.months.forEach(month => {
+
+            const td = document.createElement("td");
+            td.className = "col-value col-month numeric-column";
+
+            fillDealerCell(
+                td,
+                grid.cells.get(year + "-" + month),
+                grid.monthTotals.get(String(month))?.total
+            );
+
+            tr.appendChild(td);
+        });
+
+        const totalCell = document.createElement("td");
+        totalCell.className = "col-total sticky-right numeric-column";
+
+        fillDealerCell(
+            totalCell,
+            grid.yearTotals.get(String(year)),
+            grid.grand.total
+        );
+
+        tr.appendChild(totalCell);
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+
+    /* Foot: column totals. */
+    const tfoot = document.createElement("tfoot");
+    const footRow = document.createElement("tr");
+
+    const footHead = document.createElement("th");
+    footHead.scope = "row";
+    footHead.className = "col-entity col-year sticky-left sticky-left--entity";
+    footHead.textContent = "Total";
+    footRow.appendChild(footHead);
+
+    grid.months.forEach(month => {
+
+        const td = document.createElement("td");
+        td.className = "col-value col-month numeric-column";
+
+        fillDealerCell(
+            td,
+            grid.monthTotals.get(String(month)),
+            grid.grand.total
+        );
+
+        footRow.appendChild(td);
+    });
+
+    const grandCell = document.createElement("td");
+    grandCell.className = "col-total sticky-right numeric-column";
+
+    fillDealerCell(grandCell, grid.grand, grid.grand.total);
+
+    footRow.appendChild(grandCell);
+    tfoot.appendChild(footRow);
+    table.appendChild(tfoot);
+
+    return table;
+}
+
+
+function buildDealerCard(name, rows) {
+
+    const section = document.createElement("div");
+    section.className = "table-card dealer-card";
+
+    const heading = document.createElement("div");
+    heading.className = "section-heading section-heading--table";
+
+    const headingInner = document.createElement("div");
+
+    const eyebrow = document.createElement("span");
+    eyebrow.className = "section-eyebrow";
+    eyebrow.textContent = "DEALER";
+
+    const title = document.createElement("h2");
+    title.textContent = name;
+
+    headingInner.appendChild(eyebrow);
+    headingInner.appendChild(title);
+
+    if (rows.length > 0) {
+
+        const grid = buildDealerGrid(rows);
+
+        const meta = document.createElement("div");
+        meta.className = "dealer-card__meta";
+
+        [
+            ["Total", formatIndianNumber(grid.grand.total)],
+            ["Fixed", formatIndianNumber(grid.grand.fixed)],
+            ["Pending", formatIndianNumber(grid.grand.pending)],
+            ["Fitment", formatShare(grid.grand.fixed, grid.grand.total)]
+        ].forEach(([label, value]) => {
+
+            const stat = document.createElement("span");
+            stat.className = "dealer-card__stat";
+
+            const strong = document.createElement("strong");
+            strong.textContent = value;
+
+            stat.appendChild(strong);
+            stat.appendChild(document.createTextNode(" " + label));
+
+            meta.appendChild(stat);
+        });
+
+        headingInner.appendChild(meta);
+        heading.appendChild(headingInner);
+        section.appendChild(heading);
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "table-wrapper";
+        wrapper.appendChild(buildDealerTable(grid));
+
+        section.appendChild(wrapper);
+
+        return section;
+    }
+
+    heading.appendChild(headingInner);
+    section.appendChild(heading);
+
+    const empty = document.createElement("div");
+    empty.className = "table-state table-state--empty";
+
+    const text = document.createElement("p");
+    text.textContent =
+        "No applications for this dealer under the current filters.";
+
+    empty.appendChild(text);
+    section.appendChild(empty);
+
+    return section;
+}
+
+
+function renderDealerDetail(sourceRows) {
+
+    if (!dom.dealerDetailSection) {
+        return;
+    }
+
+    dom.dealerDetailSection.innerHTML = "";
+
+    const fragment = document.createDocumentFragment();
+
+    state.filters.dealers.forEach(name => {
+
+        const rows = sourceRows.filter(row => row.dealer_name === name);
+
+        fragment.appendChild(buildDealerCard(name, rows));
+    });
+
+    dom.dealerDetailSection.appendChild(fragment);
+}
+
+
+/*
+ * One view or the other, never both.
+ */
+function setDealerViewVisible(showDealers) {
+
+    if (dom.allDealersSection) {
+        dom.allDealersSection.hidden = showDealers;
+    }
+
+    if (dom.dealerDetailSection) {
+        dom.dealerDetailSection.hidden = !showDealers;
     }
 }
 

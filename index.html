@@ -183,23 +183,6 @@
             </div>
 
 
-            <!-- Row field list -->
-            <div class="field-panel">
-
-                <div class="field-panel__title">
-                    HSRP Row
-                </div>
-
-                <div
-                    id="rowFieldList"
-                    class="field-panel__list"
-                    role="group"
-                    aria-label="Row fields"
-                ></div>
-
-            </div>
-
-
             <form
                 id="dashboardFilters"
                 class="filter-form"
@@ -303,6 +286,44 @@
                     >
                         <option value="all">
                             All
+                        </option>
+                    </select>
+
+                    <!--
+                        Picking a dealer adds a chip here. With one
+                        or more chips the view switches to a Year x
+                        Month table per dealer.
+                    -->
+                    <div
+                        id="dealerChips"
+                        class="dealer-chips"
+                        aria-live="polite"
+                    ></div>
+
+                </div>
+
+
+                <!-- Summarise by -->
+                <div class="filter-group filter-group--groupby">
+
+                    <label for="groupByFilter">
+                        Summarise By
+                    </label>
+
+                    <select
+                        id="groupByFilter"
+                        name="groupBy"
+                    >
+                        <option value="dealer">
+                            Dealer
+                        </option>
+
+                        <option value="rto">
+                            RTO
+                        </option>
+
+                        <option value="period">
+                            Period
                         </option>
                     </select>
 
@@ -657,6 +678,7 @@
                  ================================================= -->
 
             <section
+                id="allDealersSection"
                 class="content-section"
                 aria-labelledby="dealer-summary-title"
             >
@@ -789,12 +811,12 @@
 
                     <div
                         id="tableContent"
-                        class="matrix-wrapper"
+                        class="table-wrapper"
                     >
 
                         <table
                             id="dealerSummaryTable"
-                            class="matrix-table"
+                            class="data-table"
                         >
 
                             <caption class="visually-hidden">
@@ -900,6 +922,22 @@
                 </div>
 
             </section>
+
+
+            <!-- =================================================
+                 PER-DEALER DETAIL
+
+                 Shown instead of the list above when one or more
+                 dealers are selected: one Year x Month table per
+                 dealer, stacked.
+                 ================================================= -->
+
+            <section
+                id="dealerDetailSection"
+                class="content-section"
+                aria-label="Selected dealers"
+                hidden
+            ></section>
 
         </section>
 
