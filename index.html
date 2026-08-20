@@ -189,6 +189,54 @@
                 novalidate
             >
 
+                <!--
+                    Registration lookup. Needs the COMPLETE number:
+                    the API answers exact matches only, so it cannot
+                    be used to browse the underlying records.
+                -->
+                <div class="filter-group filter-group--registration">
+
+                    <label for="registrationInput">
+                        Registration No
+                    </label>
+
+                    <div class="reg-search">
+
+                        <input
+                            type="search"
+                            id="registrationInput"
+                            placeholder="e.g. GJ01GA1872"
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+
+                        <button
+                            type="button"
+                            id="registrationButton"
+                            class="reg-search__button"
+                            aria-label="Search registration number"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="16"
+                                height="16"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.9"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <path d="m20 20-4-4"></path>
+                            </svg>
+                        </button>
+
+                    </div>
+
+                </div>
+
+
                 <!-- RTO -->
                 <div class="filter-group filter-group--rto">
 
@@ -936,6 +984,18 @@
                 id="dealerDetailSection"
                 class="content-section"
                 aria-label="Selected dealers"
+                hidden
+            ></section>
+
+
+            <!-- =================================================
+                 REGISTRATION LOOKUP RESULT
+                 ================================================= -->
+
+            <section
+                id="registrationSection"
+                class="content-section"
+                aria-label="Registration lookup"
                 hidden
             ></section>
 

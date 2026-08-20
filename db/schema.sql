@@ -224,3 +224,49 @@ FROM public.hsrp_all
 GROUP BY 1, 2, 3, 4;
 
 GRANT SELECT ON public.hsrp_dealer_summary TO web_anon;
+-- ---------------------------------------------------------------------
+--  Registration lookup
+-- ---------------------------------------------------------------------
+--  The raw tables hold owner names and registration numbers, so the
+--  public API cannot read them. This function is the one narrow door:
+--  it takes a COMPLETE registration number and returns that single
+--  record. It cannot be used to list or enumerate, because
+--
+--    * the match is exact (case and spaces normalised), never partial
+--    * inputs shorter than 7 characters return nothing
+--    * at most 10 rows come back
+--
+--  Every registration in the data is unique, so a hit is one row.
+--  SECURITY DEFINER lets it read the tables the caller cannot.
+-- ---------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.hsrp_lookup_registration(p_reg text)
+RETURNS TABLE (
+    rto_code                text,
+    sr_no                   integer,
+    report_month            smallint,
+    report_year             smallint,
+    application_no          text,
+    vehicle_registration_no text,
+    owner_name              text,
+    dealer_name             text,
+    dealer_address          text,
+    status                  text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+    SELECT a.rto_code, a.sr_no, a.report_month, a.report_year,
+           a.application_no, a.vehicle_registration_no, a.owner_name,
+           a.dealer_name, a.dealer_address, a.status
+    FROM public.hsrp_all a
+    WHERE length(btrim(coalesce(p_reg, ''))) >= 7
+      AND upper(replace(btrim(a.vehicle_registration_no), ' ', ''))
+        = upper(replace(btrim(p_reg), ' ', ''))
+    ORDER BY a.report_year, a.report_month
+    LIMIT 10;
+$fn$;
+
+GRANT EXECUTE ON FUNCTION public.hsrp_lookup_registration(text) TO web_anon;

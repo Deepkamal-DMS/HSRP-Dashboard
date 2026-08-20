@@ -2563,3 +2563,143 @@ tfoot .cell-rate__value {
 .dealer-card .sticky-left--entity {
     left: 0;
 }
+
+
+/* =========================================================
+   18. REGISTRATION LOOKUP
+   ========================================================= */
+
+.reg-search {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.reg-search input {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.reg-search input::placeholder {
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.reg-search__button {
+    display: grid;
+    place-items: center;
+
+    width: 36px;
+    height: 36px;
+
+    flex: 0 0 36px;
+
+    padding: 0;
+
+    color: #ffffff;
+    background: var(--primary);
+
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+
+    transition:
+        background var(--transition-fast),
+        border-color var(--transition-fast);
+}
+
+.reg-search__button:hover {
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+
+/* ---------------------------------------------------------
+   18.1 The record table
+
+   Shows the row exactly as it is stored, so every column is
+   text and left aligned - the opposite of the numeric grids
+   elsewhere. Only the month is transformed, from number to
+   name.
+   --------------------------------------------------------- */
+
+.record-table {
+    width: 100%;
+
+    border-collapse: collapse;
+
+    font-size: 12px;
+}
+
+.record-table th,
+.record-table td {
+    padding: 10px 14px;
+
+    text-align: left;
+    vertical-align: top;
+
+    border-bottom: 1px solid var(--border);
+}
+
+.record-table th {
+    width: 210px;
+
+    color: var(--text-secondary);
+    background: var(--surface-soft);
+
+    font-size: 10px;
+    font-weight: 600;
+
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+
+    white-space: nowrap;
+}
+
+.record-table td {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.record-table tr:last-child th,
+.record-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.record-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    padding: 3px 10px;
+
+    border-radius: 999px;
+
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.record-status--fixed {
+    color: var(--success);
+    background: var(--success-soft);
+}
+
+.record-status--pending {
+    color: var(--warning);
+    background: var(--warning-soft);
+}
+
+.record-empty {
+    padding: 26px 18px;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+
+    text-align: center;
+}
+
+.record-empty strong {
+    color: var(--text);
+}

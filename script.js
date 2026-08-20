@@ -440,6 +440,9 @@ const state = {
 
     kpis: emptyKPIs(),
 
+    /* Active registration lookup, "" when not searching. */
+    registration: "",
+
     searchTerms: [],
     searchTimer: null,
 
@@ -479,6 +482,9 @@ const DOM_IDS = [
     "statusFilter",
     "dealerFilter",
     "dealerChips",
+    "registrationInput",
+    "registrationButton",
+    "registrationSection",
     "allDealersSection",
     "dealerDetailSection",
     "groupByFilter",
@@ -2180,6 +2186,10 @@ function updateActiveFilters() {
         addFilter("Status", currentStatus().label);
     }
 
+    if (registrationIsActive()) {
+        addFilter("Registration", state.registration);
+    }
+
     if (state.filters.dealers.length > 0) {
         addFilter("Dealer", state.filters.dealers.join(", "));
     }
@@ -2354,7 +2364,7 @@ function applyFilters() {
          */
         const showDealers = state.filters.dealers.length > 0;
 
-        setDealerViewVisible(showDealers);
+        setViewMode(showDealers ? "dealers" : "all");
 
         if (showDealers) {
             renderDealerDetail(sourceRows);
@@ -2403,6 +2413,8 @@ function resetFilters() {
 
     state.filters.dealers = [];
     renderDealerChips();
+
+    clearRegistrationSearch({ apply: false });
 
     if (dom.groupByFilter) {
         dom.groupByFilter.value = DEFAULT_GROUPING;
@@ -2821,6 +2833,7 @@ async function initializeDashboard({ force = false } = {}) {
             setupFilterListeners();
             setupComboDismiss();
             setupDealerChips();
+            setupRegistrationSearch();
             state.wired = true;
         }
 
@@ -3238,17 +3251,360 @@ function renderDealerDetail(sourceRows) {
 }
 
 
+
+
+
+/* ============================================================
+   REGISTRATION LOOKUP
+
+   Searching a registration number shows the record exactly as it
+   is stored - every column of the RTO table, unchanged - with one
+   exception: report_month is a number in the table and a month
+   name on screen.
+
+   The raw tables are not readable through the API, because they
+   carry owner names. This goes through hsrp_lookup_registration,
+   a function that answers only exact, complete registration
+   numbers and returns at most 10 rows, so it cannot be used to
+   list or enumerate the records behind it.
+   ============================================================ */
+
+const REGISTRATION_MIN_LENGTH = 7;
+
+
 /*
- * One view or the other, never both.
+ * Case and spacing are ignored by the lookup, so the input is
+ * normalised the same way here for display and comparison.
  */
-function setDealerViewVisible(showDealers) {
+function normalizeRegistration(value) {
+
+    return normalizeString(value).replace(/\s+/g, "").toUpperCase();
+}
+
+
+async function lookupRegistration(value) {
+
+    const query = normalizeRegistration(value);
+
+    const url =
+        `${API_URL}/rpc/hsrp_lookup_registration` +
+        `?p_reg=${encodeURIComponent(query)}`;
+
+    const response = await fetch(url, { headers: authHeaders() });
+
+    if (!response.ok) {
+
+        let message = `${response.status} ${response.statusText}`;
+
+        try {
+            const body = await response.json();
+            if (body && body.message) {
+                message = body.message;
+            }
+        } catch (ignored) {
+            /* non-JSON error body */
+        }
+
+        throw new Error(`Registration lookup failed: ${message}`);
+    }
+
+    return response.json();
+}
+
+
+function monthNameOf(value) {
+
+    return MONTH_NAMES[toNumber(value)] || normalizeString(value);
+}
+
+
+/*
+ * One row per column, because a single record reads better down
+ * the page than across it - the address alone would blow out a
+ * horizontal layout.
+ */
+function buildRecordTable(record) {
+
+    const table = document.createElement("table");
+    table.className = "record-table";
+
+    const body = document.createElement("tbody");
+
+    const rows = [
+        ["RTO", record.rto_code],
+        ["S.No.", formatIndianNumber(record.sr_no)],
+        ["Month", monthNameOf(record.report_month)],
+        ["Year", normalizeString(record.report_year)],
+        ["Application No", record.application_no],
+        ["Vehicle Registration No", record.vehicle_registration_no],
+        ["Owner Name", record.owner_name],
+        ["Dealer Name", record.dealer_name],
+        ["Dealer Address", record.dealer_address],
+        ["Status", record.status]
+    ];
+
+    rows.forEach(([label, value]) => {
+
+        const tr = document.createElement("tr");
+
+        const th = document.createElement("th");
+        th.scope = "row";
+        th.textContent = label;
+
+        const td = document.createElement("td");
+
+        const text = normalizeString(value);
+
+        if (label === "Status" && text) {
+
+            const badge = document.createElement("span");
+
+            badge.className =
+                "record-status " +
+                (text === "HSRP Fixed"
+                    ? "record-status--fixed"
+                    : "record-status--pending");
+
+            badge.textContent = text;
+            td.appendChild(badge);
+
+        } else {
+            td.textContent = text || "—";
+        }
+
+        tr.appendChild(th);
+        tr.appendChild(td);
+        body.appendChild(tr);
+    });
+
+    table.appendChild(body);
+
+    return table;
+}
+
+
+function buildRecordCard(record, index, count) {
+
+    const card = document.createElement("div");
+    card.className = "table-card dealer-card";
+
+    const heading = document.createElement("div");
+    heading.className = "section-heading section-heading--table";
+
+    const inner = document.createElement("div");
+
+    const eyebrow = document.createElement("span");
+    eyebrow.className = "section-eyebrow";
+    eyebrow.textContent =
+        count > 1 ? `RECORD ${index + 1} OF ${count}` : "RECORD";
+
+    const title = document.createElement("h2");
+    title.textContent = normalizeString(record.vehicle_registration_no);
+
+    inner.appendChild(eyebrow);
+    inner.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "dealer-card__meta";
+
+    const period = document.createElement("span");
+    period.className = "dealer-card__stat";
+    period.textContent =
+        `${monthNameOf(record.report_month)} ${record.report_year} · ` +
+        `${normalizeString(record.rto_code)}`;
+
+    meta.appendChild(period);
+    inner.appendChild(meta);
+
+    heading.appendChild(inner);
+    card.appendChild(heading);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-wrapper";
+    wrapper.appendChild(buildRecordTable(record));
+
+    card.appendChild(wrapper);
+
+    return card;
+}
+
+
+function renderRegistrationMessage(text, query) {
+
+    const card = document.createElement("div");
+    card.className = "table-card";
+
+    const message = document.createElement("p");
+    message.className = "record-empty";
+
+    if (query) {
+
+        const strong = document.createElement("strong");
+        strong.textContent = query;
+
+        message.appendChild(document.createTextNode(text + " "));
+        message.appendChild(strong);
+
+    } else {
+        message.textContent = text;
+    }
+
+    card.appendChild(message);
+
+    return card;
+}
+
+
+function renderRegistrationResult(records, query) {
+
+    if (!dom.registrationSection) {
+        return;
+    }
+
+    dom.registrationSection.innerHTML = "";
+
+    if (!Array.isArray(records) || records.length === 0) {
+
+        dom.registrationSection.appendChild(
+            renderRegistrationMessage("No record found for", query)
+        );
+
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    records.forEach((record, index) =>
+        fragment.appendChild(buildRecordCard(record, index, records.length))
+    );
+
+    dom.registrationSection.appendChild(fragment);
+}
+
+
+/*
+ * The lookup takes over the page while it is active, the same way
+ * selecting dealers does.
+ */
+function registrationIsActive() {
+
+    return normalizeRegistration(state.registration).length > 0;
+}
+
+
+async function applyRegistrationSearch() {
+
+    const query = normalizeRegistration(dom.registrationInput?.value);
+
+    state.registration = query;
+
+    if (!query) {
+
+        /* Cleared - hand the page back to the normal views. */
+        applyFilters();
+        return;
+    }
+
+    setViewMode("registration");
+
+    if (query.length < REGISTRATION_MIN_LENGTH) {
+
+        renderRegistrationResult(
+            [],
+            `${query} — enter the complete number`
+        );
+
+        updateActiveFilters();
+
+        return;
+    }
+
+    try {
+
+        clearError();
+
+        const records = await lookupRegistration(query);
+
+        renderRegistrationResult(records, query);
+
+    } catch (error) {
+
+        renderRegistrationResult([], query);
+
+        displayError(error, "Registration lookup failed.");
+    }
+
+    updateActiveFilters();
+}
+
+
+function clearRegistrationSearch({ apply = true } = {}) {
+
+    if (dom.registrationInput) {
+        dom.registrationInput.value = "";
+    }
+
+    state.registration = "";
+
+    if (dom.registrationSection) {
+        dom.registrationSection.innerHTML = "";
+    }
+
+    if (apply) {
+        applyFilters();
+    }
+}
+
+
+function setupRegistrationSearch() {
+
+    if (dom.registrationButton) {
+        dom.registrationButton.addEventListener(
+            "click",
+            applyRegistrationSearch
+        );
+    }
+
+    if (!dom.registrationInput) {
+        return;
+    }
+
+    dom.registrationInput.addEventListener("keydown", event => {
+
+        if (event.key === "Enter") {
+            event.preventDefault();
+            applyRegistrationSearch();
+        }
+    });
+
+    /*
+     * The native clear "x" fires input with an empty value; that
+     * should restore the dashboard rather than search for nothing.
+     */
+    dom.registrationInput.addEventListener("input", () => {
+
+        if (!normalizeRegistration(dom.registrationInput.value)) {
+            clearRegistrationSearch();
+        }
+    });
+}
+
+
+/*
+ * Exactly one of the three views is visible at a time.
+ */
+function setViewMode(mode) {
 
     if (dom.allDealersSection) {
-        dom.allDealersSection.hidden = showDealers;
+        dom.allDealersSection.hidden = mode !== "all";
     }
 
     if (dom.dealerDetailSection) {
-        dom.dealerDetailSection.hidden = !showDealers;
+        dom.dealerDetailSection.hidden = mode !== "dealers";
+    }
+
+    if (dom.registrationSection) {
+        dom.registrationSection.hidden = mode !== "registration";
     }
 }
 
