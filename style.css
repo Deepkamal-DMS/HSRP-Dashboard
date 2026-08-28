@@ -1295,10 +1295,16 @@ below it, rather than drifting down with the stack.
     flex: 1 1 auto;
 }
 
-.search-box--rto {
+/*
+The RTO stack. Narrower than the dealer one - an RTO code is four
+characters - but it grows its own rows the same way, so it needs a
+column of its own rather than a fixed-width box.
+*/
+
+.search-list--rto {
     width: auto;
 
-    flex: 0 0 178px;
+    flex: 0 0 232px;
 }
 
 .table-toolbar__right {
@@ -2177,12 +2183,12 @@ th[aria-sort="descending"] .sort-icon {
         width: 100%;
     }
 
-    /* Too narrow for two boxes abreast - stack them instead. */
+    /* Too narrow for two stacks abreast - put them one above the other. */
     .toolbar-searches {
         flex-direction: column;
     }
 
-    .search-box--rto {
+    .search-list--rto {
         flex: 1 1 auto;
         width: 100%;
     }
