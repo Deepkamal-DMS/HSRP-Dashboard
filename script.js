@@ -38,9 +38,15 @@
  *
  * Both are configured in config.js, which loads first.
  */
-const API = resolveApiTarget();
+/*
+ * Reassignable, not const: on localhost the local container is only
+ * a PREFERENCE. If it is not running, initializeApi falls back to
+ * the hosted database rather than showing an empty dashboard - see
+ * probeLocalApi below.
+ */
+let API = resolveApiTarget();
 
-const API_URL = API.url;
+let API_URL = API.url;
 
 const SUMMARY_TABLE = "hsrp_dealer_summary";
 
@@ -64,6 +70,16 @@ function resolveApiTarget() {
         window.location.protocol === "file:";
 
     const target = isLocal ? config.local : config.hosted;
+
+    /*
+     * Remembered so initializeApi knows a fallback is available:
+     * only a local page has somewhere else to go.
+     */
+    if (isLocal && config.hosted && config.hosted.url &&
+        !config.hosted.url.startsWith("PASTE_")) {
+
+        window.HSRP_FALLBACK = config.hosted;
+    }
 
     if (!target || !target.url || target.url.startsWith("PASTE_")) {
 
@@ -455,16 +471,24 @@ const state = {
     /* Active registration lookup, "" when not searching. */
     registration: "",
 
+    /*
+     * Set once initializeApi has decided which API to talk to, so the
+     * local-container probe runs at most once per page.
+     */
+    apiProbed: false,
+    usingFallbackApi: false,
+
     searchTerms: [],
     searchTimer: null,
 
     /*
-     * RTO search box in the table toolbar, "" when not searching.
-     * Unlike searchTerms it narrows the SOURCE records rather than
-     * the aggregated rows, so it works whatever the table is
-     * grouped by, and stacks with the RTO dropdown above.
+     * RTO search boxes in the table toolbar, OR-ed together and
+     * empty when not searching. Unlike searchTerms these narrow the
+     * SOURCE records rather than the aggregated rows, so they work
+     * whatever the table is grouped by, and stack with the RTO
+     * dropdown above.
      */
-    rtoSearch: "",
+    rtoSearchTerms: [],
     rtoSearchTimer: null,
 
     sortKey: "total",
@@ -528,8 +552,7 @@ const DOM_IDS = [
     "entityCountMeta",
     "dealer-summary-title",
     "entitySearchList",
-    "rtoSearch",
-    "rtoSearchClear",
+    "rtoSearchList",
     "resultCount",
     "tableLoading",
     "tableEmpty",
@@ -545,7 +568,8 @@ const DOM_IDS = [
     "previousPageButton",
     "pageIndicator",
     "nextPageButton",
-    "searchRowTemplate"
+    "searchRowTemplate",
+    "rtoSearchRowTemplate"
 ];
 
 
@@ -677,10 +701,63 @@ function fitmentRate(fixed, total) {
    7. DATA LOADING
    ============================================================ */
 
-function initializeApi() {
+/*
+ * Is the local PostgREST container actually up? A checkout without
+ * Docker running would otherwise sit on "Failed to fetch" forever,
+ * because config.js routes localhost to it unconditionally.
+ *
+ * Deliberately short: this runs before the first paint of data, and
+ * a container that is down refuses the connection immediately. The
+ * timeout only matters for a host that black-holes the packet.
+ */
+async function probeLocalApi(url) {
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+
+    try {
+        await fetch(`${url}/${SUMMARY_TABLE}?select=rto_code&limit=1`, {
+            method: "HEAD",
+            signal: controller.signal
+        });
+
+        return true;
+
+    } catch (error) {
+        return false;
+
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+
+async function initializeApi() {
 
     if (API.error) {
         throw new Error(API.error);
+    }
+
+    /*
+     * Local is a preference, not a requirement. If the container is
+     * not running, use the hosted database instead - the data is the
+     * same and the anon key is read-only, so the only difference the
+     * user sees is that the page works.
+     */
+    const fallback = window.HSRP_FALLBACK;
+
+    if (fallback && !state.apiProbed) {
+
+        state.apiProbed = true;
+
+        if (!(await probeLocalApi(API_URL))) {
+
+            API = fallback;
+            API_URL = fallback.url;
+            restClient = null;
+
+            state.usingFallbackApi = true;
+        }
     }
 
     if (!restClient) {
@@ -1385,7 +1462,7 @@ function readFiltersFromUI() {
 function getFilteredSourceRows() {
 
     const { rto, year, month, dealers } = state.filters;
-    const rtoTerm = normalizeKey(state.rtoSearch);
+    const rtoTerms = getActiveRtoTerms();
 
     return state.source.filter(row => {
 
@@ -1393,8 +1470,13 @@ function getFilteredSourceRows() {
             return false;
         }
 
-        if (rtoTerm && !normalizeKey(row.rto_code).includes(rtoTerm)) {
-            return false;
+        if (rtoTerms.length > 0) {
+
+            const code = normalizeKey(row.rto_code);
+
+            if (!rtoTerms.some(term => code.includes(term))) {
+                return false;
+            }
         }
 
         if (!isAll(year) && String(row.report_year) !== year) {
@@ -2207,8 +2289,10 @@ function updateActiveFilters() {
      * as the dropdown does, so leaving it out would let the table
      * disagree with the summary above it.
      */
-    if (state.rtoSearch !== "") {
-        addFilter("RTO search", state.rtoSearch);
+    const rtoTerms = state.rtoSearchTerms.map(normalizeString).filter(Boolean);
+
+    if (rtoTerms.length > 0) {
+        addFilter("RTO search", rtoTerms.join(", "));
     }
 
     addFilter("Year", state.filters.year);
@@ -2608,25 +2692,128 @@ function applySearchChange() {
 /* ------------------------------------------------------------
    RTO search
 
-   The dealer boxes filter the aggregated rows, so they only need
+   The dealer stack filters the aggregated rows, so it only needs
    renderTable(). This one filters the source records instead, so
    the table has to be rebuilt from them - applyFilters(), which
    re-aggregates and refreshes the KPI cards with it.
+
+   Multiple boxes are OR-ed, the same way the dealer ones are, so
+   several RTOs can be measured together as one selection.
    ------------------------------------------------------------ */
 
-function syncRtoSearchClear() {
+function getRtoSearchRows() {
 
-    if (dom.rtoSearchClear) {
-        dom.rtoSearchClear.hidden = state.rtoSearch === "";
+    if (!dom.rtoSearchList) {
+        return [];
     }
+
+    return [...dom.rtoSearchList.querySelectorAll("[data-rto-row]")];
+}
+
+
+function syncRtoSearchRows() {
+
+    const rows = getRtoSearchRows();
+
+    state.rtoSearchTerms = rows.map(row => {
+
+        const input = row.querySelector("[data-rto-search]");
+
+        return input ? normalizeString(input.value) : "";
+    });
+
+    rows.forEach((row, index) => {
+
+        const input = row.querySelector("[data-rto-search]");
+        const addButton = row.querySelector("[data-add-rto]");
+        const removeButton = row.querySelector("[data-remove-rto]");
+        const clearButton = row.querySelector("[data-clear-rto]");
+
+        const isFirst = index === 0;
+
+        if (input) {
+
+            input.setAttribute(
+                "aria-label",
+                rows.length > 1
+                    ? `Search RTO, box ${index + 1} of ${rows.length}`
+                    : "Search RTO"
+            );
+        }
+
+        if (addButton) {
+
+            addButton.hidden = !isFirst;
+            addButton.disabled = rows.length >= CONFIG.MAX_SEARCH_ROWS;
+
+            addButton.title =
+                rows.length >= CONFIG.MAX_SEARCH_ROWS
+                    ? `Maximum of ${CONFIG.MAX_SEARCH_ROWS} searches`
+                    : "Add another RTO search";
+        }
+
+        if (removeButton) {
+            removeButton.hidden = isFirst;
+        }
+
+        if (clearButton) {
+            clearButton.hidden = !(input && input.value);
+        }
+    });
+}
+
+
+function getActiveRtoTerms() {
+
+    return state.rtoSearchTerms.map(normalizeKey).filter(Boolean);
+}
+
+
+function addRtoSearchRow({ focus = true } = {}) {
+
+    if (
+        !dom.rtoSearchList ||
+        !dom.rtoSearchRowTemplate ||
+        getRtoSearchRows().length >= CONFIG.MAX_SEARCH_ROWS
+    ) {
+        return null;
+    }
+
+    const fragment = dom.rtoSearchRowTemplate.content.cloneNode(true);
+    const row = fragment.querySelector("[data-rto-row]");
+
+    dom.rtoSearchList.appendChild(fragment);
+
+    syncRtoSearchRows();
+
+    if (focus) {
+
+        const input = row?.querySelector("[data-rto-search]");
+
+        if (input) {
+            input.focus();
+        }
+    }
+
+    return row;
+}
+
+
+function removeRtoSearchRow(row) {
+
+    if (!row || getRtoSearchRows().length <= 1) {
+        return;
+    }
+
+    row.remove();
+
+    applyRtoSearchChange();
 }
 
 
 function applyRtoSearchChange() {
 
-    state.rtoSearch = normalizeString(dom.rtoSearch?.value);
-
-    syncRtoSearchClear();
+    syncRtoSearchRows();
 
     applyFilters();
 }
@@ -2636,13 +2823,22 @@ function clearRtoSearch({ apply = true } = {}) {
 
     clearTimeout(state.rtoSearchTimer);
 
-    state.rtoSearch = "";
+    getRtoSearchRows().forEach((row, index) => {
 
-    if (dom.rtoSearch) {
-        dom.rtoSearch.value = "";
-    }
+        if (index === 0) {
 
-    syncRtoSearchClear();
+            const input = row.querySelector("[data-rto-search]");
+
+            if (input) {
+                input.value = "";
+            }
+
+        } else {
+            row.remove();
+        }
+    });
+
+    syncRtoSearchRows();
 
     if (apply) {
         applyFilters();
@@ -2652,11 +2848,19 @@ function clearRtoSearch({ apply = true } = {}) {
 
 function setupRtoSearch() {
 
-    if (!dom.rtoSearch) {
+    if (!dom.rtoSearchList) {
         return;
     }
 
-    dom.rtoSearch.addEventListener("input", () => {
+    if (getRtoSearchRows().length === 0) {
+        addRtoSearchRow({ focus: false });
+    }
+
+    dom.rtoSearchList.addEventListener("input", event => {
+
+        if (!event.target.closest("[data-rto-search]")) {
+            return;
+        }
 
         clearTimeout(state.rtoSearchTimer);
 
@@ -2666,23 +2870,48 @@ function setupRtoSearch() {
         );
     });
 
-    /* Escape clears the box, matching the registration search. */
-    dom.rtoSearch.addEventListener("keydown", event => {
+    dom.rtoSearchList.addEventListener("click", event => {
 
-        if (event.key === "Escape") {
-            clearRtoSearch();
+        if (event.target.closest("[data-add-rto]")) {
+            addRtoSearchRow();
+            return;
+        }
+
+        const removeButton = event.target.closest("[data-remove-rto]");
+
+        if (removeButton) {
+            removeRtoSearchRow(removeButton.closest("[data-rto-row]"));
+            return;
+        }
+
+        const clearButton = event.target.closest("[data-clear-rto]");
+
+        if (clearButton) {
+
+            const row = clearButton.closest("[data-rto-row]");
+            const input = row?.querySelector("[data-rto-search]");
+
+            if (input) {
+                input.value = "";
+                input.focus();
+            }
+
+            applyRtoSearchChange();
         }
     });
 
-    if (dom.rtoSearchClear) {
+    /* Escape clears the box it was pressed in. */
+    dom.rtoSearchList.addEventListener("keydown", event => {
 
-        dom.rtoSearchClear.addEventListener("click", () => {
-            clearRtoSearch();
-            dom.rtoSearch.focus();
-        });
-    }
+        const input = event.target.closest("[data-rto-search]");
 
-    syncRtoSearchClear();
+        if (input && event.key === "Escape") {
+            input.value = "";
+            applyRtoSearchChange();
+        }
+    });
+
+    syncRtoSearchRows();
 }
 
 
@@ -2934,7 +3163,7 @@ async function initializeDashboard({ force = false } = {}) {
 
     try {
 
-        initializeApi();
+        await initializeApi();
 
         /*
          * Built before the options load, so populateSelect can

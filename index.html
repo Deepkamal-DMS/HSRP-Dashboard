@@ -773,50 +773,10 @@
                                     class="search-list"
                                 ></div>
 
-                                <label class="search-box search-box--rto">
-
-                                    <svg
-                                        viewBox="0 0 24 24"
-                                        width="17"
-                                        height="17"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.8"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        aria-hidden="true"
-                                    >
-                                        <circle
-                                            cx="11"
-                                            cy="11"
-                                            r="7"
-                                        ></circle>
-
-                                        <path
-                                            d="m20 20-4-4"
-                                        ></path>
-                                    </svg>
-
-                                    <input
-                                        type="search"
-                                        id="rtoSearch"
-                                        class="entity-search"
-                                        placeholder="Search RTO..."
-                                        aria-label="Search RTO"
-                                        autocomplete="off"
-                                    >
-
-                                    <button
-                                        type="button"
-                                        id="rtoSearchClear"
-                                        class="search-box__clear"
-                                        aria-label="Clear RTO search"
-                                        hidden
-                                    >
-                                        &times;
-                                    </button>
-
-                                </label>
+                                <div
+                                    id="rtoSearchList"
+                                    class="search-list search-list--rto"
+                                ></div>
 
                             </div>
 
@@ -1135,6 +1095,91 @@
                 data-remove-search
                 aria-label="Remove this search"
                 title="Remove this search"
+            >
+                &minus;
+            </button>
+
+        </div>
+
+    </template>
+
+
+    <!-- =========================================================
+         RTO SEARCH ROW TEMPLATE
+
+         The dealer template's twin. Kept separate rather than
+         shared because the two stacks are wired to different
+         containers and their placeholders differ: the dealer one
+         follows the grouping, this one is always an RTO.
+         ========================================================= -->
+
+    <template id="rtoSearchRowTemplate">
+
+        <div
+            class="search-row"
+            data-rto-row
+        >
+
+            <label class="search-box">
+
+                <svg
+                    viewBox="0 0 24 24"
+                    width="17"
+                    height="17"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                >
+                    <circle
+                        cx="11"
+                        cy="11"
+                        r="7"
+                    ></circle>
+
+                    <path
+                        d="m20 20-4-4"
+                    ></path>
+                </svg>
+
+                <input
+                    type="search"
+                    class="entity-search"
+                    data-rto-search
+                    placeholder="Search RTO..."
+                    autocomplete="off"
+                >
+
+                <button
+                    type="button"
+                    class="search-box__clear"
+                    data-clear-rto
+                    aria-label="Clear this RTO search"
+                    hidden
+                >
+                    &times;
+                </button>
+
+            </label>
+
+            <button
+                type="button"
+                class="search-row__button search-row__button--add"
+                data-add-rto
+                aria-label="Add another RTO search"
+                title="Add another RTO search"
+            >
+                +
+            </button>
+
+            <button
+                type="button"
+                class="search-row__button search-row__button--remove"
+                data-remove-rto
+                aria-label="Remove this RTO search"
+                title="Remove this RTO search"
             >
                 &minus;
             </button>
