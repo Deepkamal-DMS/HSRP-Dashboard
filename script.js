@@ -121,12 +121,24 @@ const CONFIG = {
     MAX_SEARCH_ROWS: 5,
 
     /*
-     * The summary view is ~6,200 rows, so this is seven round
-     * trips on a cold load and none thereafter.
+     * The summary view is ~118,000 rows across 36 RTOs and the
+     * Jan 2024 - Aug 2026 history, so a cold load is ~24 round
+     * trips and none thereafter.
+     *
+     * MAX_FETCH_PAGES is a runaway guard, not a budget: page size
+     * times pages must stay comfortably ABOVE the view's real row
+     * count, because fetchAllRows stops at the cap silently. At
+     * 1,000 x 100 it capped out at 100,000 and quietly dropped
+     * 18,019 rows, understating every total on the page.
+     *
+     * Do NOT raise FETCH_PAGE_SIZE past 1,000. PostgREST on
+     * Supabase caps a response at db-max-rows = 1,000, so a larger
+     * page still returns 1,000 - and fetchAllRows reads the short
+     * page as "last page" and stops after the first one.
      */
     FETCH_PAGE_SIZE: 1000,
 
-    MAX_FETCH_PAGES: 100,
+    MAX_FETCH_PAGES: 400,
 
     /*
      * Below these fitment rates the meter turns amber, then red.
@@ -446,6 +458,15 @@ const state = {
     searchTerms: [],
     searchTimer: null,
 
+    /*
+     * RTO search box in the table toolbar, "" when not searching.
+     * Unlike searchTerms it narrows the SOURCE records rather than
+     * the aggregated rows, so it works whatever the table is
+     * grouped by, and stacks with the RTO dropdown above.
+     */
+    rtoSearch: "",
+    rtoSearchTimer: null,
+
     sortKey: "total",
     sortDirection: "desc",
 
@@ -507,6 +528,8 @@ const DOM_IDS = [
     "entityCountMeta",
     "dealer-summary-title",
     "entitySearchList",
+    "rtoSearch",
+    "rtoSearchClear",
     "resultCount",
     "tableLoading",
     "tableEmpty",
@@ -1362,10 +1385,15 @@ function readFiltersFromUI() {
 function getFilteredSourceRows() {
 
     const { rto, year, month, dealers } = state.filters;
+    const rtoTerm = normalizeKey(state.rtoSearch);
 
     return state.source.filter(row => {
 
         if (!isAll(rto) && row.rto_code !== rto) {
+            return false;
+        }
+
+        if (rtoTerm && !normalizeKey(row.rto_code).includes(rtoTerm)) {
             return false;
         }
 
@@ -2173,6 +2201,16 @@ function updateActiveFilters() {
     }
 
     addFilter("RTO", state.filters.rto);
+
+    /*
+     * Shown as its own chip: the RTO box narrows the data as much
+     * as the dropdown does, so leaving it out would let the table
+     * disagree with the summary above it.
+     */
+    if (state.rtoSearch !== "") {
+        addFilter("RTO search", state.rtoSearch);
+    }
+
     addFilter("Year", state.filters.year);
 
     if (!isAll(state.filters.month)) {
@@ -2423,6 +2461,7 @@ function resetFilters() {
     refreshAllCombos();
 
     clearTableSearch({ render: false });
+    clearRtoSearch({ apply: false });
 
     state.sortKey = "total";
     state.sortDirection = "desc";
@@ -2563,6 +2602,87 @@ function applySearchChange() {
     state.currentPage = 1;
 
     renderTable();
+}
+
+
+/* ------------------------------------------------------------
+   RTO search
+
+   The dealer boxes filter the aggregated rows, so they only need
+   renderTable(). This one filters the source records instead, so
+   the table has to be rebuilt from them - applyFilters(), which
+   re-aggregates and refreshes the KPI cards with it.
+   ------------------------------------------------------------ */
+
+function syncRtoSearchClear() {
+
+    if (dom.rtoSearchClear) {
+        dom.rtoSearchClear.hidden = state.rtoSearch === "";
+    }
+}
+
+
+function applyRtoSearchChange() {
+
+    state.rtoSearch = normalizeString(dom.rtoSearch?.value);
+
+    syncRtoSearchClear();
+
+    applyFilters();
+}
+
+
+function clearRtoSearch({ apply = true } = {}) {
+
+    clearTimeout(state.rtoSearchTimer);
+
+    state.rtoSearch = "";
+
+    if (dom.rtoSearch) {
+        dom.rtoSearch.value = "";
+    }
+
+    syncRtoSearchClear();
+
+    if (apply) {
+        applyFilters();
+    }
+}
+
+
+function setupRtoSearch() {
+
+    if (!dom.rtoSearch) {
+        return;
+    }
+
+    dom.rtoSearch.addEventListener("input", () => {
+
+        clearTimeout(state.rtoSearchTimer);
+
+        state.rtoSearchTimer = setTimeout(
+            applyRtoSearchChange,
+            CONFIG.SEARCH_DELAY
+        );
+    });
+
+    /* Escape clears the box, matching the registration search. */
+    dom.rtoSearch.addEventListener("keydown", event => {
+
+        if (event.key === "Escape") {
+            clearRtoSearch();
+        }
+    });
+
+    if (dom.rtoSearchClear) {
+
+        dom.rtoSearchClear.addEventListener("click", () => {
+            clearRtoSearch();
+            dom.rtoSearch.focus();
+        });
+    }
+
+    syncRtoSearchClear();
 }
 
 
@@ -2828,6 +2948,7 @@ async function initializeDashboard({ force = false } = {}) {
 
         if (!state.wired) {
             setupSearch();
+            setupRtoSearch();
             setupSorting();
             setupPagination();
             setupFilterListeners();

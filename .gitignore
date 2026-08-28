@@ -58,3 +58,14 @@ desktop.ini
 *.log
 .vscode/
 .idea/
+
+# ---------------------------------------------------------------------
+#  Generated load reports
+# ---------------------------------------------------------------------
+#  Written by db/upload.js on every run, so they go stale the moment
+#  the next load happens. Regenerate rather than read from git.
+# ---------------------------------------------------------------------
+
+db/upload-report.json
+db/files.json
+db/load/

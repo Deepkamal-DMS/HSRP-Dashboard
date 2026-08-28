@@ -759,10 +759,66 @@
 
                         <div class="table-toolbar__left">
 
-                            <div
-                                id="entitySearchList"
-                                class="search-list"
-                            ></div>
+                            <!--
+                                Two searches side by side. The dealer
+                                stack narrows the rows the table is
+                                built from; the RTO box narrows the
+                                records those rows are built out of,
+                                so the two compose rather than compete.
+                            -->
+                            <div class="toolbar-searches">
+
+                                <div
+                                    id="entitySearchList"
+                                    class="search-list"
+                                ></div>
+
+                                <label class="search-box search-box--rto">
+
+                                    <svg
+                                        viewBox="0 0 24 24"
+                                        width="17"
+                                        height="17"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.8"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        aria-hidden="true"
+                                    >
+                                        <circle
+                                            cx="11"
+                                            cy="11"
+                                            r="7"
+                                        ></circle>
+
+                                        <path
+                                            d="m20 20-4-4"
+                                        ></path>
+                                    </svg>
+
+                                    <input
+                                        type="search"
+                                        id="rtoSearch"
+                                        class="entity-search"
+                                        placeholder="Search RTO..."
+                                        aria-label="Search RTO"
+                                        autocomplete="off"
+                                    >
+
+                                    <button
+                                        type="button"
+                                        id="rtoSearchClear"
+                                        class="search-box__clear"
+                                        aria-label="Clear RTO search"
+                                        hidden
+                                    >
+                                        &times;
+                                    </button>
+
+                                </label>
+
+                            </div>
 
                         </div>
 

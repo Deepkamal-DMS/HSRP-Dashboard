@@ -1273,7 +1273,32 @@ truth, just not visible or focusable.
 }
 
 .table-toolbar__left {
-    width: min(390px, 100%);
+    width: min(620px, 100%);
+}
+
+/*
+Dealer stack and RTO box, side by side. Aligned to the top so the
+RTO box stays level with the FIRST dealer row as more are added
+below it, rather than drifting down with the stack.
+*/
+
+.toolbar-searches {
+    display: flex;
+    align-items: flex-start;
+
+    gap: 8px;
+}
+
+.toolbar-searches .search-list {
+    min-width: 0;
+
+    flex: 1 1 auto;
+}
+
+.search-box--rto {
+    width: auto;
+
+    flex: 0 0 178px;
 }
 
 .table-toolbar__right {
@@ -2149,6 +2174,16 @@ th[aria-sort="descending"] .sort-icon {
     }
 
     .table-toolbar__left {
+        width: 100%;
+    }
+
+    /* Too narrow for two boxes abreast - stack them instead. */
+    .toolbar-searches {
+        flex-direction: column;
+    }
+
+    .search-box--rto {
+        flex: 1 1 auto;
         width: 100%;
     }
 
