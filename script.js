@@ -716,12 +716,20 @@ async function probeLocalApi(url) {
     const timer = setTimeout(() => controller.abort(), 2000);
 
     try {
-        await fetch(`${url}/${SUMMARY_TABLE}?select=rto_code&limit=1`, {
-            method: "HEAD",
-            signal: controller.signal
-        });
+        const response = await fetch(
+            `${url}/${SUMMARY_TABLE}?select=rto_code&limit=1`,
+            { method: "HEAD", signal: controller.signal }
+        );
 
-        return true;
+        /*
+         * response.ok, not merely "something answered". Port 3004 can
+         * be held by an unrelated service - another project's API, a
+         * stale dev server - which replies 404 because it has never
+         * heard of this view. Treating that as a healthy local API
+         * leaves the dashboard reading the wrong database and
+         * reporting "relation does not exist".
+         */
+        return response.ok;
 
     } catch (error) {
         return false;
